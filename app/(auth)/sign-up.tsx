@@ -1,15 +1,66 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Link, router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 
+// Simple email validation
+const validateEmail = (email) => {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+};
+
+// Simple password validation
+const validatePassword = (password) => {
+  return password.length >= 8;
+};
+
 export default function SignUpScreen() {
-  const handleSignUp = () => {
-    router.push('/user-info');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullname, setFullname] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSignUp = async () => {
+    // Validate inputs
+    if (!email.trim() || !password.trim() || !confirmPassword.trim() || !fullname.trim()) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address');
+      return;
+    }
+
+    if (!validatePassword(password)) {
+      Alert.alert('Weak Password', 'Password should be at least 8 characters long');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Password Mismatch', 'Passwords do not match');
+      return;
+    }
+
+    // Simulate signup process
+    setIsSubmitting(true);
+    
+    // Simulate API call with timeout
+    setTimeout(() => {
+      setIsSubmitting(false);
+      // Navigate to user info screen on success
+      router.push('/user-info');
+    }, 1500);
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+      <TouchableOpacity 
+        onPress={() => router.back()} 
+        style={styles.backButton}
+        disabled={isSubmitting}
+      >
         <ArrowLeft size={24} color="#000" />
       </TouchableOpacity>
       
@@ -19,12 +70,26 @@ export default function SignUpScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputContainer}>
+            <Text style={styles.label}>Full Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your full name"
+              value={fullname}
+              onChangeText={setFullname}
+              editable={!isSubmitting}
+            />
+          </View>
+
+          <View style={styles.inputContainer}>
             <Text style={styles.label}>Email</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter your email"
               keyboardType="email-address"
               autoCapitalize="none"
+              value={email}
+              onChangeText={setEmail}
+              editable={!isSubmitting}
             />
           </View>
 
@@ -34,6 +99,9 @@ export default function SignUpScreen() {
               style={styles.input}
               placeholder="Choose a password"
               secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              editable={!isSubmitting}
             />
           </View>
 
@@ -43,6 +111,9 @@ export default function SignUpScreen() {
               style={styles.input}
               placeholder="Confirm your password"
               secureTextEntry
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              editable={!isSubmitting}
             />
           </View>
 
@@ -54,14 +125,22 @@ export default function SignUpScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity style={styles.button} onPress={handleSignUp}>
-            <Text style={styles.buttonText}>Continue</Text>
+          <TouchableOpacity 
+            style={[styles.button, isSubmitting && styles.buttonDisabled]} 
+            onPress={handleSignUp}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Continue</Text>
+            )}
           </TouchableOpacity>
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Already have an account? </Text>
-            <Link href="/sign-in" asChild>
-              <TouchableOpacity>
+            <Link href="/(auth)/sign-in" asChild>
+              <TouchableOpacity disabled={isSubmitting}>
                 <Text style={styles.footerLink}>Sign In</Text>
               </TouchableOpacity>
             </Link>
@@ -136,6 +215,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 12,
+  },
+  buttonDisabled: {
+    backgroundColor: '#666',
+    opacity: 0.8,
   },
   buttonText: {
     color: '#fff',

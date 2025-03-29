@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 
@@ -20,7 +20,7 @@ const steps: Step[] = [
     id: 1,
     title: 'Personal Information',
     fields: [
-      { key: 'fullName', label: 'Full Name', placeholder: 'Enter your full name' },
+      { key: 'fullname', label: 'Full Name', placeholder: 'Enter your full name' },
       { key: 'phone', label: 'Phone Number', placeholder: '+39 XXX XXX XXXX', type: 'tel' },
     ],
   },
@@ -45,13 +45,37 @@ const steps: Step[] = [
 export default function UserInfoScreen() {
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState({});
+  const [loading, setLoading] = useState(false);
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    // Validate current step data
+    const currentStepFields = steps[currentStep].fields;
+    const missingFields = currentStepFields
+      .filter(field => !formData[field.key])
+      .map(field => field.label);
+    
+    if (missingFields.length > 0) {
+      Alert.alert('Missing Information', `Please fill in: ${missingFields.join(', ')}`);
+      return;
+    }
+
     if (currentStep < steps.length - 1) {
+      // Move to next step
       setCurrentStep(currentStep + 1);
     } else {
-      // Complete registration
-      router.replace('/(app)');
+      // This is the final step - simulate saving profile data
+      setLoading(true);
+      
+      // Simulate API call with timeout
+      setTimeout(() => {
+        setLoading(false);
+        // Show success message
+        Alert.alert(
+          'Profile Completed', 
+          'Your profile has been saved successfully!',
+          [{ text: 'OK', onPress: () => router.replace('/(app)') }]
+        );
+      }, 1500);
     }
   };
 
@@ -128,9 +152,15 @@ export default function UserInfoScreen() {
             </View>
           ))}
 
-          <TouchableOpacity style={styles.button} onPress={handleNext}>
+          <TouchableOpacity 
+            style={[styles.button, loading && styles.buttonDisabled]} 
+            onPress={handleNext}
+            disabled={loading}
+          >
             <Text style={styles.buttonText}>
-              {isLastStep ? 'Complete Registration' : 'Continue'}
+              {loading 
+                ? 'Saving...' 
+                : (isLastStep ? 'Complete Registration' : 'Continue')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -227,6 +257,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 12,
+  },
+  buttonDisabled: {
+    backgroundColor: '#000',
+    opacity: 0.7,
   },
   buttonText: {
     color: '#fff',

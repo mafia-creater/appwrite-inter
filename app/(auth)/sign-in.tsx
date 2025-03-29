@@ -1,16 +1,18 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Keyboard } from 'react-native';
-import { Link, Redirect, useRouter } from 'expo-router';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Keyboard, Alert } from 'react-native';
+import { Link, router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
-import { useAuth } from '../../hooks/useAuth';
-import { validateEmail } from '../../hooks/validators';
+
+// Simple email validation
+const validateEmail = (email) => {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+};
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
-  const router = useRouter();
 
   const handleSignIn = useCallback(async () => {
     Keyboard.dismiss(); // Hide keyboard when submitting
@@ -25,22 +27,23 @@ export default function SignInScreen() {
       return;
     }
 
-    try {
-      setIsSubmitting(true);
-      await login(email, password);
-      // On successful login, the auth hook will handle redirection
-    } catch (error) {
-      let errorMessage = 'An error occurred during login';
-      if (error.code === 401) {
-        errorMessage = 'Invalid email or password';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      Alert.alert('Login Failed', errorMessage);
-    } finally {
+    // Simulate login process
+    setIsSubmitting(true);
+    
+    // Simulate API call with timeout
+    setTimeout(() => {
       setIsSubmitting(false);
-    }
-  }, [email, password, login]);
+      
+      // For demo purposes, accept any valid format email with password length >= 6
+      if (password.length >= 6) {
+        // Navigate to main app on success
+        router.replace('/(app)');
+      } else {
+        // Show error for demonstration
+        Alert.alert('Login Failed', 'Invalid email or password');
+      }
+    }, 1500);
+  }, [email, password]);
 
   return (
     <View style={styles.container}>

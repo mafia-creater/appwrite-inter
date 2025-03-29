@@ -1,123 +1,125 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Account, ID, Client } from 'react-native-appwrite';
-import { client } from '@/lib/appwrite';
-import { useRouter, useSegments } from 'expo-router';
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { router } from 'expo-router';
+import appwriteService from '../lib/appwrite';
+import * as SecureStore from 'expo-secure-store';
 import { Alert } from 'react-native';
 
-export function useAuth() {
+const AuthContext = createContext();
+
+export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const segments = useSegments();
-  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
-  const account = new Account(client);
+  // Initialize auth state
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        setLoading(true);
+        const currentUser = await appwriteService.getCurrentUser();
+        
+        if (currentUser) {
+          setUser(currentUser);
+          // If we're on an auth page, redirect to app
+          if (router.pathname.includes('/(auth)')) {
+            router.replace('/(app)');
+          }
+        } else {
+          // If we're on an app page, redirect to auth
+          if (router.pathname.includes('/(app)')) {
+            router.replace('/(auth)/sign-in');
+          }
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        setLoading(false);
+        setAuthInitialized(true);
+      }
+    };
 
-  const checkAuthStatus = useCallback(async () => {
-    setIsLoading(true);
+    initializeAuth();
+  }, []);
+
+  // Login function
+  const login = async (email, password) => {
     try {
-      const currentUser = await account.get();
+      const session = await appwriteService.login(email, password);
+      const currentUser = await appwriteService.getCurrentUser();
       setUser(currentUser);
-      setIsAuthenticated(true);
-    } catch (error) {
-      setIsAuthenticated(false);
-      setUser(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [account]);
-
-  const login = useCallback(async (email, password) => {
-    try {
-      await account.createEmailPasswordSession(email, password);
-      await checkAuthStatus();
+      return { success: true };
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
-  }, [account, checkAuthStatus]);
-
-  const signup = useCallback(async (email, password, additionalInfo = {}) => {
-    try {
-      const newUser = await account.create(
-        ID.unique(), 
-        email, 
-        password
-      );
-
-      await account.createEmailPasswordSession(email, password);
-
-      if (Object.keys(additionalInfo).length > 0) {
-        await account.updatePrefs(additionalInfo);
-      }
-
-      await checkAuthStatus();
-      return newUser;
-    } catch (error) {
-      console.error('Signup error:', error);
-      throw error;
-    }
-  }, [account, checkAuthStatus]);
-
-  const logout = useCallback(async () => {
-    try {
-      await account.deleteSession('current');
-      setIsAuthenticated(false);
-      setUser(null);
-      router.replace('/sign-in');
-    } catch (error) {
-      console.error('Logout error', error);
-      Alert.alert('Error', 'Failed to logout. Please try again.');
-    }
-  }, [account, router]);
-
-  // Check auth status on mount
-  useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
-
-  // Protected route logic
-  useEffect(() => {
-    if (isLoading) return;
-  
-    const inAuthGroup = segments[0] === '(auth)';
-    
-    if (!isAuthenticated) {
-      // Redirect all unauthenticated users to onboarding
-      router.replace('/(auth)/onboarding');
-    } else if (isAuthenticated && inAuthGroup) {
-      // Redirect authenticated users away from auth routes
-      router.replace('/(app)/home');
-    }
-  }, [isAuthenticated, isLoading, segments]);
-
-  return {
-    login,
-    signup,
-    logout,
-    checkAuthStatus,
-    user,
-    isAuthenticated,
-    isLoading,
   };
+
+  // Register function
+  const register = async (email, password, fullname) => {
+    try {
+      const account = await appwriteService.createAccount(email, password, fullname);
+      setUser(account);
+      return { success: true };
+    } catch (error) {
+      console.error('Registration error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Update profile function
+  const updateProfile = async (userData) => {
+    try {
+      const updatedProfile = await appwriteService.updateProfile(userData);
+      
+      // Update the user state with the new profile data
+      setUser(prev => ({
+        ...prev,
+        profile: updatedProfile
+      }));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Profile update error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Logout function
+  const logout = async () => {
+    try {
+      await appwriteService.logout();
+      setUser(null);
+      router.replace('/(auth)/sign-in');
+      return { success: true };
+    } catch (error) {
+      console.error('Logout error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // The value to be provided by the context
+  const authContext = {
+    user,
+    loading,
+    authInitialized,
+    login,
+    register,
+    logout,
+    updateProfile,
+  };
+
+  return (
+    <AuthContext.Provider value={authContext}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
-// Higher-Order Component for Protected Routes
-export function withAuth(Component) {
-  return function ProtectedRoute(props) {
-    const { isAuthenticated, isLoading } = useAuth();
-    const router = useRouter();
-
-    useEffect(() => {
-      if (!isLoading && !isAuthenticated) {
-        router.replace('/sign-in');
-      }
-    }, [isAuthenticated, isLoading]);
-
-    if (isLoading) {
-      return null; // or a loading component
-    }
-
-    return isAuthenticated ? <Component {...props} /> : null;
-  };
+// Custom hook to use auth
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
