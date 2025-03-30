@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, X } from 'lucide-react-native';
+import { useAuth } from '@/context/authContext'; 
 
 type Step = {
   id: number;
@@ -10,7 +11,7 @@ type Step = {
     key: string;
     label: string;
     placeholder: string;
-    type?: 'text' | 'tel' | 'select';
+    type?: 'text' | 'tel' | 'select' | 'tags';
     options?: string[];
   }>;
 };
@@ -28,7 +29,7 @@ const steps: Step[] = [
     id: 2,
     title: 'Academic Details',
     fields: [
-      { key: 'university', label: 'University', placeholder: 'University of Bologna', type: 'select', options: ['University of Bologna', 'Johns Hopkins SAIS Europe', 'Bologna Business School'] },
+      { key: 'university', label: 'University', placeholder: 'Enter your university name', type: 'text' },
       { key: 'course', label: 'Course/Program', placeholder: 'Enter your course or program' },
     ],
   },
@@ -37,21 +38,74 @@ const steps: Step[] = [
     title: 'Additional Information',
     fields: [
       { key: 'nationality', label: 'Nationality', placeholder: 'Enter your nationality' },
-      { key: 'interests', label: 'Interests', placeholder: 'e.g., Sports, Music, Art', type: 'text' },
+      { key: 'interests', label: 'Interests', placeholder: 'Add your interests', type: 'tags' },
     ],
   },
 ];
 
+// Predefined interest options for the tag buttons
+const interestOptions = [
+  'Sports', 'Music', 'Art', 'Reading', 'Travel', 
+  'Technology', 'Food', 'Photography', 'Fashion', 'Gaming',
+  'Fitness', 'Movies', 'Dance', 'Languages', 'Writing'
+];
+
 export default function UserInfoScreen() {
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState({});
+  const [formData, setFormData] = useState({ interests: [] });
   const [loading, setLoading] = useState(false);
+  const [newInterest, setNewInterest] = useState('');
+  
+  // Use the auth context
+  const { user, profile, updateProfile, isAuthenticated } = useAuth();
+  
+  // Get current user profile when component mounts
+  useEffect(() => {
+    if (!user) {
+      console.warn("UserInfoScreen: No authenticated user found!");
+      return;
+    }
+    
+    console.log("UserInfoScreen: User authenticated:", user.$id);
+    
+    if (profile) {
+      console.log("UserInfoScreen: Profile found:", profile.$id);
+      // Pre-fill form data with existing profile data
+      const processedProfile = {...profile};
+      
+      // Ensure interests is an array
+      if (profile.interests && !Array.isArray(profile.interests)) {
+        // If somehow the interest is not an array (e.g. string from older version),
+        // convert it to an array
+        try {
+          if (typeof profile.interests === 'string') {
+            processedProfile.interests = profile.interests.split(',').map(item => item.trim());
+          }
+        } catch (e) {
+          processedProfile.interests = [];
+        }
+      } else if (!profile.interests) {
+        processedProfile.interests = [];
+      }
+      
+      setFormData(processedProfile);
+    } else {
+      console.log("UserInfoScreen: No profile found for user:", user?.$id);
+      // Initialize interests as empty array
+      setFormData(prev => ({...prev, interests: []}));
+    }
+  }, [user, profile]);
 
   const handleNext = async () => {
     // Validate current step data
     const currentStepFields = steps[currentStep].fields;
     const missingFields = currentStepFields
-      .filter(field => !formData[field.key])
+      .filter(field => {
+        if (field.key === 'interests') {
+          return !formData[field.key] || !formData[field.key].length;
+        }
+        return !formData[field.key];
+      })
       .map(field => field.label);
     
     if (missingFields.length > 0) {
@@ -63,19 +117,41 @@ export default function UserInfoScreen() {
       // Move to next step
       setCurrentStep(currentStep + 1);
     } else {
-      // This is the final step - simulate saving profile data
+      // This is the final step - save profile data to Appwrite
       setLoading(true);
       
-      // Simulate API call with timeout
-      setTimeout(() => {
-        setLoading(false);
+      try {
+        if (!user) {
+          console.error("UserInfoScreen: No authenticated user found!");
+          throw new Error('User not authenticated');
+        }
+        
+        console.log("UserInfoScreen: Attempting to update profile for user:", user.$id);
+        
+        // Make a copy of form data
+        const dataToSave = {...formData};
+        
+        // Ensure interests is an array
+        if (!Array.isArray(dataToSave.interests)) {
+          dataToSave.interests = [];
+        }
+        
+        // Save the complete profile data
+        const result = await updateProfile(dataToSave);
+        console.log("UserInfoScreen: Profile update result:", result?.$id);
+        
         // Show success message
         Alert.alert(
           'Profile Completed', 
           'Your profile has been saved successfully!',
           [{ text: 'OK', onPress: () => router.replace('/(app)') }]
         );
-      }, 1500);
+      } catch (error) {
+        console.error('Error saving profile:', error);
+        Alert.alert('Error', `Failed to save your profile: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -87,8 +163,42 @@ export default function UserInfoScreen() {
     }
   };
 
+  const addInterest = (interest) => {
+    if (!interest.trim()) return;
+    
+    // Check if the interest already exists
+    if (!formData.interests || !formData.interests.includes(interest)) {
+      setFormData(prev => ({
+        ...prev,
+        interests: [...(prev.interests || []), interest.trim()]
+      }));
+    }
+    setNewInterest('');
+  };
+
+  const removeInterest = (interestToRemove) => {
+    setFormData(prev => ({
+      ...prev,
+      interests: prev.interests.filter(interest => interest !== interestToRemove)
+    }));
+  };
+
+  const toggleInterestTag = (interest) => {
+    if (formData.interests && formData.interests.includes(interest)) {
+      removeInterest(interest);
+    } else {
+      addInterest(interest);
+    }
+  };
+
   const step = steps[currentStep];
   const isLastStep = currentStep === steps.length - 1;
+
+  // Add log to check authentication status
+  useEffect(() => {
+    console.log("UserInfoScreen: Authentication status:", isAuthenticated ? "Authenticated" : "Not authenticated");
+    console.log("UserInfoScreen: User:", user ? user.$id : "No user");
+  }, [isAuthenticated, user]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -118,27 +228,61 @@ export default function UserInfoScreen() {
           {step.fields.map((field) => (
             <View key={field.key} style={styles.inputContainer}>
               <Text style={styles.label}>{field.label}</Text>
-              {field.type === 'select' ? (
-                <View style={styles.select}>
-                  {field.options?.map((option) => (
+              
+              {field.type === 'tags' ? (
+                <View>
+                  {/* Selected interests tags */}
+                  <View style={styles.tagsContainer}>
+                    {formData.interests && formData.interests.map((interest, index) => (
+                      <View key={`selected-${index}`} style={styles.tag}>
+                        <Text style={styles.tagText}>{interest}</Text>
+                        <TouchableOpacity onPress={() => removeInterest(interest)}>
+                          <X size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                  
+                  {/* Add custom interest input */}
+                  <View style={styles.customTagInput}>
+                    <TextInput
+                      style={styles.tagInput}
+                      placeholder={field.placeholder}
+                      value={newInterest}
+                      onChangeText={setNewInterest}
+                      onSubmitEditing={() => addInterest(newInterest)}
+                    />
                     <TouchableOpacity
-                      key={option}
-                      style={[
-                        styles.selectOption,
-                        formData[field.key] === option && styles.selectOptionSelected,
-                      ]}
-                      onPress={() => setFormData({ ...formData, [field.key]: option })}
+                      style={styles.addTagButton}
+                      onPress={() => addInterest(newInterest)}
                     >
-                      <Text
-                        style={[
-                          styles.selectOptionText,
-                          formData[field.key] === option && styles.selectOptionTextSelected,
-                        ]}
-                      >
-                        {option}
-                      </Text>
+                      <Text style={styles.addTagButtonText}>Add</Text>
                     </TouchableOpacity>
-                  ))}
+                  </View>
+                  
+                  {/* Interest options */}
+                  <Text style={styles.suggestedLabel}>Suggested interests:</Text>
+                  <View style={styles.interestOptions}>
+                    {interestOptions.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        style={[
+                          styles.interestOption,
+                          formData.interests && formData.interests.includes(option) && styles.interestOptionSelected
+                        ]}
+                        onPress={() => toggleInterestTag(option)}
+                      >
+                        <Text
+                          style={[
+                            styles.interestOptionText,
+                            formData.interests && formData.interests.includes(option) && styles.interestOptionTextSelected
+                          ]}
+                        >
+                          {option}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
               ) : (
                 <TextInput
@@ -222,6 +366,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     color: '#333',
   },
+  suggestedLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -230,25 +381,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
   },
-  select: {
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
     gap: 8,
   },
-  selectOption: {
+  tag: {
+    backgroundColor: '#000',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tagText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+  },
+  customTagInput: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  tagInput: {
+    flex: 1,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 12,
-    padding: 16,
+    padding: 12,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
   },
-  selectOptionSelected: {
+  addTagButton: {
+    backgroundColor: '#000',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  addTagButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  interestOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  interestOption: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  interestOptionSelected: {
     backgroundColor: '#000',
     borderColor: '#000',
   },
-  selectOptionText: {
-    fontSize: 16,
+  interestOptionText: {
+    fontSize: 14,
     fontFamily: 'Inter_400Regular',
     color: '#000',
   },
-  selectOptionTextSelected: {
+  interestOptionTextSelected: {
     color: '#fff',
   },
   button: {

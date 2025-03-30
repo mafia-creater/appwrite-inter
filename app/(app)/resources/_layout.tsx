@@ -7,6 +7,7 @@ export default function ResourcesLayout() {
       <Stack.Screen 
         name="index" 
         options={{ 
+          title: 'Resources', // Set the title for the main explore screen
           headerShown: false // Hide header on the main explore screen
         }} 
       />

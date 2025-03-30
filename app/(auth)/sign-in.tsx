@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator,
 import { Link, router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
+import { authService } from '@/services/authService';
 
 // Simple email validation
 const validateEmail = (email) => {
@@ -27,22 +28,26 @@ export default function SignInScreen() {
       return;
     }
 
-    // Simulate login process
+    // Start loading state
     setIsSubmitting(true);
     
-    // Simulate API call with timeout
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      // Attempt to login with Appwrite
+      await authService.login(email, password);
       
-      // For demo purposes, accept any valid format email with password length >= 6
-      if (password.length >= 6) {
-        // Navigate to main app on success
-        router.replace('/(app)');
-      } else {
-        // Show error for demonstration
+      // Navigate to main app on success
+      router.replace('/(app)');
+    } catch (error) {
+      // Handle specific error cases
+      if (error.code === 401) {
         Alert.alert('Login Failed', 'Invalid email or password');
+      } else {
+        Alert.alert('Error', 'An error occurred during sign in. Please try again.');
+        console.error('Sign in error:', error);
       }
-    }, 1500);
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [email, password]);
 
   return (

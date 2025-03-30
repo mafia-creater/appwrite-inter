@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Link, router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
+import { useAuth } from '@/context/authContext';
 
 // Simple email validation
 const validateEmail = (email) => {
@@ -20,6 +21,9 @@ export default function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullname, setFullname] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Use the auth context instead of direct service calls
+  const { signUp } = useAuth();
 
   const handleSignUp = async () => {
     // Validate inputs
@@ -43,15 +47,31 @@ export default function SignUpScreen() {
       return;
     }
 
-    // Simulate signup process
+    // Start loading state
     setIsSubmitting(true);
     
-    // Simulate API call with timeout
-    setTimeout(() => {
+    try {
+      // Use the signUp function from auth context instead of direct service call
+      const result = await signUp(email, password, fullname);
+      
+      if (result && result.success) {
+        console.log("Sign up successful, navigating to user-info");
+        // Use setTimeout to ensure state is updated before navigation
+        setTimeout(() => {
+          router.push('/(auth)/user-info');
+        }, 100);
+      }
+    } catch (error) {
+      // Handle specific error cases
+      if (error.code === 409) {
+        Alert.alert('Account Exists', 'An account with this email already exists.');
+      } else {
+        Alert.alert('Error', `An error occurred during sign up: ${error.message}`);
+        console.error('Sign up error:', error);
+      }
+    } finally {
       setIsSubmitting(false);
-      // Navigate to user info screen on success
-      router.push('/user-info');
-    }, 1500);
+    }
   };
 
   return (
@@ -150,6 +170,7 @@ export default function SignUpScreen() {
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

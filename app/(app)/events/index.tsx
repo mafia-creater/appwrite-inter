@@ -1,54 +1,33 @@
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Dimensions } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link } from 'expo-router';
-import { Calendar, MapPin, Users } from 'lucide-react-native';
-
-const events = [
-  {
-    id: '1',
-    title: 'International Students Welcome Party',
-    date: 'Sep 15, 2024',
-    time: '18:00',
-    location: 'Piazza Maggiore',
-    image: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=600&auto=format&fit=crop',
-    attendees: 156,
-    description: 'Join us for a night of music, food, and cultural exchange! Meet fellow international students and start your Bologna adventure.',
-    organizer: 'Student Union Bologna',
-    category: 'Social',
-  },
-  {
-    id: '2',
-    title: 'Italian Language Exchange',
-    date: 'Sep 18, 2024',
-    time: '17:30',
-    location: 'Caffè Zamboni',
-    image: 'https://images.unsplash.com/photo-1544531585-9847b68c8c86?q=80&w=600&auto=format&fit=crop',
-    attendees: 42,
-    description: 'Practice your Italian with native speakers in a casual environment. All levels welcome!',
-    organizer: 'Language Exchange Bologna',
-    category: 'Education',
-  },
-  {
-    id: '3',
-    title: 'City Walking Tour',
-    date: 'Sep 20, 2024',
-    time: '10:00',
-    location: 'Two Towers',
-    image: 'https://images.unsplash.com/photo-1605276277265-84f97980a425?q=80&w=600&auto=format&fit=crop',
-    attendees: 28,
-    description: 'Discover the hidden gems of Bologna with our experienced local guide. Learn about the city\'s rich history and culture.',
-    organizer: 'Bologna Tourism',
-    category: 'Culture',
-  },
-];
-
-const { width } = Dimensions.get('window');
+import { Calendar, MapPin, Plus, Users } from 'lucide-react-native';
+import { eventsService } from '@/services/authService';
 
 export default function EventsScreen() {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const eventsData = await eventsService.getEvents();
+        setEvents(eventsData);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchEvents();
+  }, []);
+
   const renderEventCard = ({ item }) => (
-    <Link href={`/events/${item.id}`} asChild>
+    <Link href={`/events/${item.$id}`} asChild>
       <TouchableOpacity style={styles.eventCard}>
-        <Image source={{ uri: item.image }} style={styles.eventImage} />
+        <Image source={{ uri: item.image_url }} style={styles.eventImage} />
         <View style={styles.eventContent}>
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{item.category}</Text>
@@ -76,19 +55,41 @@ export default function EventsScreen() {
     </Link>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Events</Text>
-        <Text style={styles.subtitle}>Discover what's happening in Bologna</Text>
-      </View>
+    <View>
+      <Text style={styles.title}>Events</Text>
+      <Text style={styles.subtitle}>Discover what's happening in Bologna</Text>
+    </View>
+    <Link href="/events/create" asChild>
+      <TouchableOpacity style={styles.plusButton}>
+        <Plus size={24} color="#000" />
+      </TouchableOpacity>
+    </Link>
+  </View>
 
       <FlatList
         data={events}
         renderItem={renderEventCard}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item.$id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No events found</Text>
+          </View>
+        }
       />
     </SafeAreaView>
   );
@@ -99,9 +100,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     padding: 24,
     backgroundColor: '#fff',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  plusButton: {
+    padding: 8,
+    marginRight: -8, // Compensates for padding to align icon properly
   },
   title: {
     fontSize: 32,
@@ -159,6 +172,16 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#666',
   },

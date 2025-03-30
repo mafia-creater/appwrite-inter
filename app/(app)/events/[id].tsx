@@ -1,40 +1,69 @@
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Calendar, MapPin, Users, Share2 } from 'lucide-react-native';
-
-const events = {
-  '1': {
-    id: '1',
-    title: 'International Students Welcome Party',
-    date: 'Sep 15, 2024',
-    time: '18:00',
-    location: 'Piazza Maggiore',
-    image: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=600&auto=format&fit=crop',
-    attendees: 156,
-    description: 'Join us for a night of music, food, and cultural exchange! Meet fellow international students and start your Bologna adventure.',
-    organizer: 'Student Union Bologna',
-    category: 'Social',
-    fullDescription: `Get ready for the biggest international student event of the year! This welcome party is designed to help you meet fellow students from around the world and kick off your academic journey in Bologna in style.
-
-What to expect:
-• Live music from local bands
-• International food stations
-• Cultural performances
-• Ice-breaking activities
-• City information booth
-• Student organizations showcase
-
-Don't miss this opportunity to make friends from across the globe and become part of Bologna's vibrant student community!`,
-    address: 'Piazza Maggiore, 40124 Bologna BO, Italy',
-    price: 'Free',
-  },
-  // Add other events here...
-};
+import { eventsService } from '@/services/authService';
+import { useAuth } from '@/context/authContext';
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams();
-  const event = events[id as string];
+  const { user, isAuthenticated } = useAuth();
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
+  const [isAttending, setIsAttending] = useState(false);
+
+  useEffect(() => {
+    const fetchEvent = async () => {
+      try {
+        const eventData = await eventsService.getEvent(id);
+        setEvent(eventData);
+        
+        if (isAuthenticated && user) {
+          const attending = await eventsService.isUserAttending(id, user.$id);
+          setIsAttending(attending);
+        }
+      } catch (error) {
+        console.error('Error fetching event:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchEvent();
+  }, [id, isAuthenticated, user]);
+
+  const handleJoinEvent = async () => {
+    if (!isAuthenticated) {
+      router.push('/(auth)/sign-in');
+      return;
+    }
+    
+    try {
+      setJoining(true);
+      await eventsService.joinEvent(id, user.$id);
+      setIsAttending(true);
+      
+      // Refresh event data
+      const updatedEvent = await eventsService.getEvent(id);
+      setEvent(updatedEvent);
+    } catch (error) {
+      console.error('Error joining event:', error);
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!event) {
     return (
@@ -56,7 +85,7 @@ export default function EventDetailScreen() {
           </TouchableOpacity>
         </View>
 
-        <Image source={{ uri: event.image }} style={styles.image} />
+        <Image source={{ uri: event.image_url }} style={styles.image} />
 
         <View style={styles.content}>
           <View style={styles.categoryBadge}>
@@ -78,7 +107,7 @@ export default function EventDetailScreen() {
               <MapPin size={20} color="#666" />
               <View>
                 <Text style={styles.detailLabel}>Location</Text>
-                <Text style={styles.detailText}>{event.address}</Text>
+                <Text style={styles.detailText}>{event.location}</Text>
               </View>
             </View>
 
@@ -93,7 +122,7 @@ export default function EventDetailScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About this Event</Text>
-            <Text style={styles.description}>{event.fullDescription}</Text>
+            <Text style={styles.description}>{event.description}</Text>
           </View>
 
           <View style={styles.section}>
@@ -106,10 +135,16 @@ export default function EventDetailScreen() {
       <View style={styles.footer}>
         <View style={styles.priceContainer}>
           <Text style={styles.priceLabel}>Price</Text>
-          <Text style={styles.price}>{event.price}</Text>
+          <Text style={styles.price}>{event.price === '0' ? 'Free' : `€${event.price}`}</Text>
         </View>
-        <TouchableOpacity style={styles.button}>
-          <Text style={styles.buttonText}>Join Event</Text>
+        <TouchableOpacity 
+          style={[styles.button, isAttending && styles.buttonDisabled]} 
+          onPress={handleJoinEvent}
+          disabled={isAttending || joining}
+        >
+          <Text style={styles.buttonText}>
+            {joining ? 'Joining...' : isAttending ? 'Joined' : 'Join Event'}
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -120,6 +155,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     position: 'absolute',
@@ -249,6 +289,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 12,
+  },
+  buttonDisabled: {
+    backgroundColor: '#ccc',
   },
   buttonText: {
     color: '#fff',
