@@ -1,33 +1,54 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Link } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
 import { Calendar, MapPin, Plus, Users } from 'lucide-react-native';
 import { eventsService } from '@/services/authService';
 
 export default function EventsScreen() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const eventsData = await eventsService.getEvents();
-        setEvents(eventsData);
-      } catch (error) {
-        console.error('Error fetching events:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchEvents();
+  const fetchEvents = async () => {
+    try {
+      setLoading(true);
+      const eventsData = await eventsService.getEvents();
+      setEvents(eventsData);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchEvents();
+    }, [])
+  );
+
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const eventsData = await eventsService.getEvents();
+      setEvents(eventsData);
+    } catch (error) {
+      console.error('Error refreshing events:', error);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
   const renderEventCard = ({ item }) => (
     <Link href={`/events/${item.$id}`} asChild>
       <TouchableOpacity style={styles.eventCard}>
-        <Image source={{ uri: item.image_url }} style={styles.eventImage} />
+        <Image 
+          source={{ uri: item.image_url || 'https://via.placeholder.com/400x200' }} 
+          style={styles.eventImage} 
+        />
         <View style={styles.eventContent}>
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{item.category}</Text>
@@ -55,7 +76,7 @@ export default function EventsScreen() {
     </Link>
   );
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -68,16 +89,16 @@ export default function EventsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-    <View>
-      <Text style={styles.title}>Events</Text>
-      <Text style={styles.subtitle}>Discover what's happening in Bologna</Text>
-    </View>
-    <Link href="/events/create" asChild>
-      <TouchableOpacity style={styles.plusButton}>
-        <Plus size={24} color="#000" />
-      </TouchableOpacity>
-    </Link>
-  </View>
+        <View>
+          <Text style={styles.title}>Events</Text>
+          <Text style={styles.subtitle}>Discover what's happening in Bologna</Text>
+        </View>
+        <Link href="/events/create" asChild>
+          <TouchableOpacity style={styles.plusButton}>
+            <Plus size={24} color="#000" />
+          </TouchableOpacity>
+        </Link>
+      </View>
 
       <FlatList
         data={events}
@@ -85,9 +106,22 @@ export default function EventsScreen() {
         keyExtractor={item => item.$id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            colors={["#000"]}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No events found</Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={fetchEvents}
+            >
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
           </View>
         }
       />
@@ -114,7 +148,7 @@ const styles = StyleSheet.create({
   },
   plusButton: {
     padding: 8,
-    marginRight: -8, // Compensates for padding to align icon properly
+    marginRight: -8,
   },
   title: {
     fontSize: 32,
@@ -184,5 +218,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#666',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#000',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
   },
 });

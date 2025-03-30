@@ -1,72 +1,120 @@
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Image, 
+  ScrollView, 
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Share2, Bed, Bath, MapPin, Check, Euro } from 'lucide-react-native';
-
-const housing = {
-  '1': {
-    id: '1',
-    title: 'Modern Studio near University',
-    location: 'Via Zamboni',
-    price: 650,
-    image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=600&auto=format&fit=crop',
-    type: 'Studio',
-    bedrooms: 1,
-    bathrooms: 1,
-    area: 35,
-    available: 'Immediately',
-    furnished: true,
-    description: `Beautiful and bright studio apartment perfectly located for university students. Recently renovated with modern furnishings and appliances.
-
-Features:
-• Fully furnished
-• Modern kitchen with appliances
-• High-speed internet included
-• Washing machine
-• Air conditioning
-• Double-glazed windows
-• Elevator in building
-
-The apartment is located in the heart of the university district, just 5 minutes walk from the main university buildings and surrounded by cafes, restaurants, and shops.`,
-    address: 'Via Zamboni 32, 40126 Bologna',
-    amenities: [
-      'Air Conditioning',
-      'Washing Machine',
-      'Dishwasher',
-      'Internet',
-      'TV',
-      'Elevator',
-      'Furnished',
-    ],
-    images: [
-      'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=600&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?q=80&w=600&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?q=80&w=600&auto=format&fit=crop',
-    ],
-  },
-  // Add other properties here...
-};
+import { ArrowLeft, Share2, Bed, Bath, MapPin, Check } from 'lucide-react-native';
+import { housingService } from '@/services/authService'; // Import the housing service
 
 export default function HousingDetailScreen() {
   const { id } = useLocalSearchParams();
-  const property = housing[id as string];
+  const [property, setProperty] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
+  // Function to load property details
+  const loadPropertyDetails = async () => {
+    try {
+      setError(null);
+      setIsLoading(true);
+      const propertyData = await housingService.getHousingListing(id);
+      setProperty(propertyData);
+    } catch (error) {
+      console.error('Failed to load property details:', error);
+      setError('Failed to load property details. Please try again later.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    loadPropertyDetails();
+  }, [id]);
+
+  // Handle refresh
+  const onRefresh = () => {
+    setIsRefreshing(true);
+    loadPropertyDetails();
+  };
+
+  // Share functionality
+  const handleShare = async () => {
+    // Implement share functionality if needed
+    console.log('Share property:', id);
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingContainer]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <ArrowLeft size={24} color="#000" />
+        </TouchableOpacity>
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={styles.loadingText}>Loading property details...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.container, styles.errorContainer]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <ArrowLeft size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadPropertyDetails}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  // Not found state
   if (!property) {
     return (
-      <SafeAreaView style={styles.container}>
-        <Text>Property not found</Text>
+      <SafeAreaView style={[styles.container, styles.errorContainer]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <ArrowLeft size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.errorText}>Property not found</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={["#000"]}
+            tintColor="#000"
+          />
+        }
+      >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <ArrowLeft size={24} color="#000" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.shareButton}>
+          <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Share2 size={24} color="#000" />
           </TouchableOpacity>
         </View>
@@ -76,9 +124,16 @@ export default function HousingDetailScreen() {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           style={styles.imageScroller}>
-          {property.images.map((image, index) => (
-            <Image key={index} source={{ uri: image }} style={styles.image} />
-          ))}
+          {property.images && property.images.length > 0 ? (
+            property.images.map((image, index) => (
+              <Image key={index} source={{ uri: image }} style={styles.image} />
+            ))
+          ) : (
+            <Image 
+              source={{ uri: 'https://static.vecteezy.com/system/resources/previews/021/736/279/non_2x/transparent-background-4k-empty-grid-checkered-layout-wallpaper-free-vector.jpg' }} 
+              style={styles.image} 
+            />
+          )}
         </ScrollView>
 
         <View style={styles.content}>
@@ -90,7 +145,7 @@ export default function HousingDetailScreen() {
 
           <View style={styles.locationRow}>
             <MapPin size={20} color="#666" />
-            <Text style={styles.locationText}>{property.address}</Text>
+            <Text style={styles.locationText}>{property.address || property.location}</Text>
           </View>
 
           <View style={styles.statsContainer}>
@@ -115,17 +170,19 @@ export default function HousingDetailScreen() {
             <Text style={styles.description}>{property.description}</Text>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Amenities</Text>
-            <View style={styles.amenitiesList}>
-              {property.amenities.map((amenity, index) => (
-                <View key={index} style={styles.amenityItem}>
-                  <Check size={16} color="#000" />
-                  <Text style={styles.amenityText}>{amenity}</Text>
-                </View>
-              ))}
+          {property.amenities && property.amenities.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Amenities</Text>
+              <View style={styles.amenitiesList}>
+                {property.amenities.map((amenity, index) => (
+                  <View key={index} style={styles.amenityItem}>
+                    <Check size={16} color="#000" />
+                    <Text style={styles.amenityText}>{amenity}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
         </View>
       </ScrollView>
 
@@ -146,6 +203,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+  },
+  errorContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#ff3b30',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#000',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
   },
   header: {
     position: 'absolute',

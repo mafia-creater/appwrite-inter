@@ -6,7 +6,7 @@ import { AuthProvider, useAuth } from '@/context/authContext';
 
 // Auth guard function to protect routes
 function AuthGuard() {
-  const { isAuthenticated, isProfileComplete, isLoading, authInitialized } = useAuth();
+  const { isAuthenticated, isProfileComplete, isLoading, authInitialized, profile } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -18,6 +18,9 @@ function AuthGuard() {
       isAuthenticated ? "Authenticated" : "Not authenticated", 
       isProfileComplete ? "Profile complete" : "Profile incomplete",
       "Current path:", segments.join('/'));
+    
+    // Log the complete profile data for debugging
+    console.log("AuthGuard: Profile data:", JSON.stringify(profile));
 
     const inAuthGroup = segments[0] === '(auth)';
     const inAppGroup = segments[0] === '(app)';
@@ -29,17 +32,25 @@ function AuthGuard() {
       console.log("AuthGuard: Redirecting to sign-in (not authenticated)");
       router.replace('/(auth)/sign-in');
     } else if (isAuthenticated) {
+      // Check profile status more reliably
+      const profileStatus = !!profile?.profileComplete;
+      console.log("AuthGuard: Direct profile status check:", profileStatus);
+      
       if (inAuthGroup && !inUserInfoScreen) {
         // Redirect to app if authenticated and trying to access auth screens (except user-info)
         console.log("AuthGuard: Redirecting to app (authenticated in auth group)");
         router.replace('/(app)');
-      } else if (!isProfileComplete && !inUserInfoScreen && !inAuthGroup) {
+      } else if (!profileStatus && !inUserInfoScreen && !inAuthGroup) {
         // If profile is incomplete, redirect to user-info
         console.log("AuthGuard: Redirecting to user-info (profile incomplete)");
         router.replace('/(auth)/user-info');
+      } else if (profileStatus && inUserInfoScreen) {
+        // If profile is complete but still on user-info screen, redirect to app
+        console.log("AuthGuard: Redirecting to app (profile complete but on user-info)");
+        router.replace('/(app)');
       }
     }
-  }, [isAuthenticated, isProfileComplete, isLoading, authInitialized, segments, router]);
+  }, [isAuthenticated, isProfileComplete, isLoading, authInitialized, segments, router, profile]);
 
   return null;
 }
@@ -97,6 +108,5 @@ function RootLayoutContent() {
       </Stack>
       <AuthGuard />
     </View>
-  )
-
+  );
 }

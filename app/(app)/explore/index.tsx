@@ -1,55 +1,87 @@
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  FlatList, 
+  Image, 
+  TouchableOpacity, 
+  TextInput, 
+  RefreshControl,
+  ActivityIndicator 
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link } from 'expo-router';
-import { Search, Bed, Bath, Euro, MapPin, Plus } from 'lucide-react-native';
-
-const housing = [
-  {
-    id: '1',
-    title: 'Modern Studio near University',
-    location: 'Via Zamboni',
-    price: 650,
-    image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=600&auto=format&fit=crop',
-    type: 'Studio',
-    bedrooms: 1,
-    bathrooms: 1,
-    area: 35,
-    available: 'Immediately',
-    furnished: true,
-  },
-  {
-    id: '2',
-    title: 'Shared Apartment in City Center',
-    location: 'Piazza Maggiore',
-    price: 450,
-    image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?q=80&w=600&auto=format&fit=crop',
-    type: 'Shared',
-    bedrooms: 3,
-    bathrooms: 2,
-    area: 90,
-    available: 'Oct 1, 2024',
-    furnished: true,
-  },
-  {
-    id: '3',
-    title: 'Cozy Room in Student House',
-    location: 'Via San Vitale',
-    price: 380,
-    image: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?q=80&w=600&auto=format&fit=crop',
-    type: 'Room',
-    bedrooms: 1,
-    bathrooms: 2,
-    area: 15,
-    available: 'Sep 15, 2024',
-    furnished: true,
-  },
-];
+import { Search, Bed, Bath, MapPin, Plus } from 'lucide-react-native';
+import { housingService } from '@/services/authService'; // Import the housing service
 
 export default function ExploreScreen() {
+  const [housing, setHousing] = useState([]);
+  const [filteredHousing, setFilteredHousing] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Function to load housing listings
+  const loadHousingListings = useCallback(async () => {
+    try {
+      setError(null);
+      const listings = await housingService.getHousingListings();
+      setHousing(listings);
+      setFilteredHousing(listings);
+    } catch (error) {
+      console.error('Failed to load housing listings:', error);
+      setError('Failed to load housing listings. Please try again later.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    loadHousingListings();
+  }, [loadHousingListings]);
+
+  // Handle refresh
+  const onRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    loadHousingListings();
+  }, [loadHousingListings]);
+
+  // Handle search
+  const handleSearch = async (text) => {
+    setSearchTerm(text);
+    
+    if (!text.trim()) {
+      // If search is empty, restore full list
+      setFilteredHousing(housing);
+      return;
+    }
+    
+    try {
+      const results = await housingService.searchHousingListings(text);
+      setFilteredHousing(results);
+    } catch (error) {
+      console.error('Search failed:', error);
+      // Fall back to client-side filtering if search API fails
+      const filtered = housing.filter(item => 
+        item.title.toLowerCase().includes(text.toLowerCase()) ||
+        item.location.toLowerCase().includes(text.toLowerCase()) ||
+        item.type.toLowerCase().includes(text.toLowerCase())
+      );
+      setFilteredHousing(filtered);
+    }
+  };
+
   const renderHousingCard = ({ item }) => (
-    <Link href={`/explore/${item.id}`} asChild>
+    <Link href={`/explore/${item.$id}`} asChild>
       <TouchableOpacity style={styles.card}>
-        <Image source={{ uri: item.image }} style={styles.cardImage} />
+        <Image 
+          source={{ uri: item.images?.[0] || 'https://via.placeholder.com/600x400?text=No+Image' }} 
+          style={styles.cardImage} 
+        />
         <View style={styles.cardContent}>
           <View style={styles.typeBadge}>
             <Text style={styles.typeText}>{item.type}</Text>
@@ -85,16 +117,38 @@ export default function ExploreScreen() {
     </Link>
   );
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={styles.loadingText}>Loading housing listings...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.container, styles.errorContainer]}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={loadHousingListings}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Housing</Text>
         <Text style={styles.subtitle}>Find your perfect student accommodation</Text>
         <Link href="/explore/create" asChild>
-      <TouchableOpacity style={styles.plusButton}>
-        <Plus size={24} color="#000" />
-      </TouchableOpacity>
-    </Link>
+          <TouchableOpacity style={styles.plusButton}>
+            <Plus size={24} color="#000" />
+          </TouchableOpacity>
+        </Link>
       </View>
 
       <View style={styles.searchContainer}>
@@ -103,15 +157,32 @@ export default function ExploreScreen() {
           style={styles.searchInput}
           placeholder="Search by location or type..."
           placeholderTextColor="#666"
+          value={searchTerm}
+          onChangeText={handleSearch}
         />
       </View>
 
       <FlatList
-        data={housing}
+        data={filteredHousing}
         renderItem={renderHousingCard}
-        keyExtractor={item => item.id}
+        keyExtractor={item => item.$id || item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={["#000"]}
+            tintColor="#000"
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>
+              {searchTerm ? 'No housing listings found matching your search.' : 'No housing listings available.'}
+            </Text>
+          </View>
+        }
       />
     </SafeAreaView>
   );
@@ -121,6 +192,50 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+  },
+  errorContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#ff3b30',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#000',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+  },
+  emptyContainer: {
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+    textAlign: 'center',
   },
   header: {
     padding: 24,

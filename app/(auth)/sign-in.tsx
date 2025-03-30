@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator,
 import { Link, router } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { useState, useCallback } from 'react';
-import { authService } from '@/services/authService';
+import { useAuth } from '@/context/authContext';
 
 // Simple email validation
 const validateEmail = (email) => {
@@ -14,6 +14,9 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Use auth context instead of direct service calls
+  const { signIn } = useAuth();
 
   const handleSignIn = useCallback(async () => {
     Keyboard.dismiss(); // Hide keyboard when submitting
@@ -32,11 +35,14 @@ export default function SignInScreen() {
     setIsSubmitting(true);
     
     try {
-      // Attempt to login with Appwrite
-      await authService.login(email, password);
+      // Use context's signIn instead of direct service call
+      await signIn(email, password);
+      console.log('Sign in successful');
       
-      // Navigate to main app on success
+      // Let the AuthGuard handle routing based on profile status
+      // This allows time for the profile to be properly loaded
       router.replace('/(app)');
+      
     } catch (error) {
       // Handle specific error cases
       if (error.code === 401) {
@@ -48,7 +54,7 @@ export default function SignInScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, password]);
+  }, [email, password, signIn]);
 
   return (
     <View style={styles.container}>

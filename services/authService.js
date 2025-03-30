@@ -19,6 +19,7 @@ const DATABASE_ID = '67e3f0450005208dcedc';
 const PROFILES_COLLECTION_ID = '67e3f0540010aa16d205';
 const EVENTS_COLLECTION_ID = '67e424f0000ee6d790ad'; 
 const storageId = '67e8f9ef001984a06104';
+const HOUSING_COLLECTION_ID = '67e427420038f517a001';
 
 export class AuthService {
   // Register a new user
@@ -398,3 +399,223 @@ class EventsService {
   }
   
 export const eventsService = new EventsService();
+
+class HousingService {
+  // Get all housing listings
+  async getHousingListings() {
+    try {
+      const listings = await databases.listDocuments(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID
+      );
+      
+      return listings.documents;
+    } catch (error) {
+      console.error('Error getting housing listings:', error);
+      throw error;
+    }
+  }
+  
+  // Get housing listing by ID
+  async getHousingListing(listingId) {
+    try {
+      return await databases.getDocument(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        listingId
+      );
+    } catch (error) {
+      console.error('Error getting housing listing:', error);
+      throw error;
+    }
+  }
+  
+  // Create a new housing listing
+  async createHousingListing(listingData, imageFiles = []) {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        throw new Error('User must be logged in to create a listing');
+      }
+      
+      // Process and upload images
+      const imageUrls = [];
+      
+      if (imageFiles && imageFiles.length > 0) {
+        for (const imageFile of imageFiles) {
+          const uploadedFile = await storage.createFile(
+            storageId,
+            ID.unique(),
+            imageFile
+          );
+          
+          // Get file preview URL
+          const imageUrl = storage.getFilePreview(
+            storageId,
+            uploadedFile.$id,
+            800, // width
+            600, // height
+            'center', // gravity
+            100 // quality
+          );
+          
+          imageUrls.push(imageUrl);
+        }
+      }
+      
+      // Create housing document
+      return await databases.createDocument(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        ID.unique(),
+        {
+          ...listingData,
+          images: imageUrls,
+          ownerId: user.$id,
+          createdAt: new Date().toISOString(),
+        }
+      );
+    } catch (error) {
+      console.error('Error creating housing listing:', error);
+      throw error;
+    }
+  }
+  
+  // Update a housing listing
+  async updateHousingListing(listingId, listingData, imageFiles = []) {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        throw new Error('User must be logged in to update a listing');
+      }
+      
+      const listing = await this.getHousingListing(listingId);
+      
+      // Check if user is the owner of the listing
+      if (listing.ownerId !== user.$id) {
+        throw new Error('You can only update your own listings');
+      }
+      
+      let imageUrls = listing.images || [];
+      
+      // Process and upload new images if provided
+      if (imageFiles && imageFiles.length > 0) {
+        for (const imageFile of imageFiles) {
+          const uploadedFile = await storage.createFile(
+            storageId,
+            ID.unique(),
+            imageFile
+          );
+          
+          // Get file preview URL
+          const imageUrl = storage.getFilePreview(
+            storageId,
+            uploadedFile.$id,
+            800, // width
+            600, // height
+            'center', // gravity
+            100 // quality
+          );
+          
+          imageUrls.push(imageUrl);
+        }
+      }
+      
+      // Update housing document
+      return await databases.updateDocument(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        listingId,
+        {
+          ...listingData,
+          images: imageUrls,
+          updatedAt: new Date().toISOString(),
+        }
+      );
+    } catch (error) {
+      console.error('Error updating housing listing:', error);
+      throw error;
+    }
+  }
+  
+  // Delete a housing listing
+  async deleteHousingListing(listingId) {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        throw new Error('User must be logged in to delete a listing');
+      }
+      
+      const listing = await this.getHousingListing(listingId);
+      
+      // Check if user is the owner of the listing
+      if (listing.ownerId !== user.$id) {
+        throw new Error('You can only delete your own listings');
+      }
+      
+      // Delete housing document
+      return await databases.deleteDocument(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        listingId
+      );
+    } catch (error) {
+      console.error('Error deleting housing listing:', error);
+      throw error;
+    }
+  }
+  
+  // Search housing listings by location or type
+  async searchHousingListings(searchTerm) {
+    try {
+      const listings = await databases.listDocuments(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        [
+          Query.search('title', searchTerm),
+          Query.search('location', searchTerm),
+          Query.search('type', searchTerm)
+        ]
+      );
+      
+      return listings.documents;
+    } catch (error) {
+      console.error('Error searching housing listings:', error);
+      throw error;
+    }
+  }
+  
+  // Filter housing listings by price range
+  async filterHousingListings(minPrice, maxPrice, bedrooms, type) {
+    try {
+      let queries = [];
+      
+      if (minPrice !== undefined && maxPrice !== undefined) {
+        queries.push(Query.greaterThanEqual('price', minPrice));
+        queries.push(Query.lessThanEqual('price', maxPrice));
+      }
+      
+      if (bedrooms !== undefined) {
+        queries.push(Query.equal('bedrooms', bedrooms));
+      }
+      
+      if (type !== undefined) {
+        queries.push(Query.equal('type', type));
+      }
+      
+      const listings = await databases.listDocuments(
+        DATABASE_ID,
+        HOUSING_COLLECTION_ID,
+        queries
+      );
+      
+      return listings.documents;
+    } catch (error) {
+      console.error('Error filtering housing listings:', error);
+      throw error;
+    }
+  }
+}
+
+// Create and export a singleton instance
+export const housingService = new HousingService();

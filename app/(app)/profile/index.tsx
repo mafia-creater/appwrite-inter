@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, School, Mail, Phone, CreditCard as Edit, LogOut } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { authService } from '@/services/authService';
+import { useAuth } from '@/context/authContext'; // Import the auth context
 
 type UserProfile = {
   id?: string;
@@ -43,10 +44,10 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 function ProfileScreenContent() {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const { signOut, user, profile } = useAuth(); // Use the auth context
+  const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
 
   const logout = () => {
     Alert.alert(
@@ -60,9 +61,9 @@ function ProfileScreenContent() {
           onPress: async () => {
             try {
               setLoading(true);
-              await authService.logout();
-              setIsAuthenticated(false);
-              router.replace('/(auth)/sign-in');
+              // Use the context signOut method instead of direct service call
+              await signOut();
+              // Navigation is handled in the context, so no need to call router here
             } catch (err) {
               console.error('Logout error:', err);
               Alert.alert('Logout Failed', 'Could not log out. Please try again.');
@@ -78,11 +79,9 @@ function ProfileScreenContent() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const profile = await authService.getUserProfile();
-        
+        // Use profile from context if available
         if (profile) {
-          // Transform the profile data from Appwrite to match our UserProfile type
-          const formattedProfile: UserProfile = {
+          const formattedProfile = {
             id: profile.userId || profile.$id,
             email: profile.email || '',
             fullname: profile.fullname || '',
@@ -96,16 +95,31 @@ function ProfileScreenContent() {
           };
           
           setUserProfile(formattedProfile);
-        } else {
-          // If no profile found, check if user is authenticated
-          const user = await authService.getCurrentUser();
-          if (!user) {
-            setIsAuthenticated(false);
-            router.replace('/(auth)/sign-in');
+        } else if (user) {
+          // If we have user but no profile, fetch it
+          const fetchedProfile = await authService.getUserProfile();
+          
+          if (fetchedProfile) {
+            const formattedProfile = {
+              id: fetchedProfile.userId || fetchedProfile.$id,
+              email: fetchedProfile.email || '',
+              fullname: fetchedProfile.fullname || '',
+              phone: fetchedProfile.phone || '',
+              university: fetchedProfile.university || '',
+              course: fetchedProfile.course || '',
+              nationality: fetchedProfile.nationality || '',
+              interests: fetchedProfile.interests || [],
+              avatar: fetchedProfile.avatar || 'https://via.placeholder.com/80',
+              bio: fetchedProfile.bio || ''
+            };
+            
+            setUserProfile(formattedProfile);
           } else {
-            // User is authenticated but has no profile
             setError('Profile not found');
           }
+        } else {
+          // No user, redirect to sign in
+          router.replace('/(auth)/sign-in');
         }
       } catch (err) {
         console.error('Profile load error:', err);
@@ -116,8 +130,9 @@ function ProfileScreenContent() {
     };
 
     loadProfile();
-  }, []);
+  }, [user, profile]);
 
+  
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -271,13 +286,13 @@ function ProfileScreenContent() {
         )}
 
         <TouchableOpacity 
-          style={styles.logoutButton} 
-          onPress={logout}
-          testID="logout-button"
-        >
-          <LogOut size={20} color="#FF3B30" />
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
+                style={styles.logoutButton} 
+                onPress={logout}
+                testID="logout-button"
+              >
+                <LogOut size={20} color="#FF3B30" />
+                <Text style={styles.logoutText}>Log Out</Text>
+              </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
