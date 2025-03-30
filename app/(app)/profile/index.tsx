@@ -1,11 +1,10 @@
 import React from 'react';
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, School, Mail, Phone, CreditCard as Edit, LogOut } from 'lucide-react-native';
 import { router } from 'expo-router';
-
-import { ActivityIndicator } from 'react-native';
+import { authService } from '@/services/authService';
 
 type UserProfile = {
   id?: string;
@@ -18,20 +17,6 @@ type UserProfile = {
   interests: string[];
   avatar: string;
   bio: string;
-};
-
-// Mock data for demonstration purposes
-const MOCK_USER_PROFILE: UserProfile = {
-  id: 'user123',
-  email: 'student@university.edu',
-  fullname: 'Alex Student',
-  phone: '+1 (555) 123-4567',
-  university: 'University of Technology',
-  course: 'Computer Science',
-  nationality: 'Canadian',
-  interests: ['Programming', 'UI Design', 'Machine Learning', 'Mobile Apps'],
-  avatar: 'https://via.placeholder.com/80',
-  bio: 'Computer Science student passionate about mobile development'
 };
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
@@ -63,7 +48,6 @@ function ProfileScreenContent() {
   const [error, setError] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(true);
 
-  // Mock logout function
   const logout = () => {
     Alert.alert(
       'Logout',
@@ -73,10 +57,18 @@ function ProfileScreenContent() {
         { 
           text: 'Logout', 
           style: 'destructive',
-          onPress: () => {
-            // In a real app, this would clear auth state
-            setIsAuthenticated(false);
-            router.replace('/(auth)/sign-in');
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await authService.logout();
+              setIsAuthenticated(false);
+              router.replace('/(auth)/sign-in');
+            } catch (err) {
+              console.error('Logout error:', err);
+              Alert.alert('Logout Failed', 'Could not log out. Please try again.');
+            } finally {
+              setLoading(false);
+            }
           }
         }
       ]
@@ -84,17 +76,41 @@ function ProfileScreenContent() {
   };
 
   useEffect(() => {
-    // Simulate loading profile data
     const loadProfile = async () => {
       try {
-        // Simulate network delay
-        setTimeout(() => {
-          setUserProfile(MOCK_USER_PROFILE);
-          setLoading(false);
-        }, 1000);
+        const profile = await authService.getUserProfile();
+        
+        if (profile) {
+          // Transform the profile data from Appwrite to match our UserProfile type
+          const formattedProfile: UserProfile = {
+            id: profile.userId || profile.$id,
+            email: profile.email || '',
+            fullname: profile.fullname || '',
+            phone: profile.phone || '',
+            university: profile.university || '',
+            course: profile.course || '',
+            nationality: profile.nationality || '',
+            interests: profile.interests || [],
+            avatar: profile.avatar || 'https://via.placeholder.com/80',
+            bio: profile.bio || ''
+          };
+          
+          setUserProfile(formattedProfile);
+        } else {
+          // If no profile found, check if user is authenticated
+          const user = await authService.getCurrentUser();
+          if (!user) {
+            setIsAuthenticated(false);
+            router.replace('/(auth)/sign-in');
+          } else {
+            // User is authenticated but has no profile
+            setError('Profile not found');
+          }
+        }
       } catch (err) {
         console.error('Profile load error:', err);
         setError('Failed to load profile');
+      } finally {
         setLoading(false);
       }
     };
@@ -247,6 +263,13 @@ function ProfileScreenContent() {
           </View>
         )}
 
+        {userProfile.bio && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Bio</Text>
+            <Text style={styles.bioText}>{userProfile.bio}</Text>
+          </View>
+        )}
+
         <TouchableOpacity 
           style={styles.logoutButton} 
           onPress={logout}
@@ -351,6 +374,11 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
+  },
+  bioText: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 24,
   },
   interests: {
     flexDirection: 'row',

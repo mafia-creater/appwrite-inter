@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link } from 'expo-router';
-import { Search, Bed, Bath, Euro, MapPin } from 'lucide-react-native';
+import { Search, Bed, Bath, Euro, MapPin, Plus } from 'lucide-react-native';
 
 const housing = [
   {
@@ -90,6 +90,11 @@ export default function ExploreScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Housing</Text>
         <Text style={styles.subtitle}>Find your perfect student accommodation</Text>
+        <Link href="/explore/create" asChild>
+      <TouchableOpacity style={styles.plusButton}>
+        <Plus size={24} color="#000" />
+      </TouchableOpacity>
+    </Link>
       </View>
 
       <View style={styles.searchContainer}>
@@ -119,6 +124,14 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 24,
+  },
+  plusButton: {
+    position: 'absolute',
+    right: 24,
+    top: 24,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 50,
+    padding: 12,
   },
   title: {
     fontSize: 32,

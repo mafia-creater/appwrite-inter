@@ -18,6 +18,20 @@ export default function ResourcesLayout() {
           title: 'Resources Detail', // Set the title for the detail screen
         }}
       />
+      <Stack.Screen
+      name='transport'
+        options={{
+            headerShown: false, // Show header on the detail screen
+            title: 'Resources Transport', // Set the title for the detail screen
+        }}
+        />
+        <Stack.Screen
+        name='residence-permit'
+        options={{
+            headerShown: false, // Show header on the detail screen
+            title: 'Resources Residence Permit', // Set the title for the detail screen
+        }}
+        />
     </Stack>
     );
 }

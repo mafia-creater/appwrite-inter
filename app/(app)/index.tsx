@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Image, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bell, Search, ChevronRight } from 'lucide-react-native';
 import { router } from 'expo-router';
+import { useAuth } from '@/context/authContext';
+import { eventsService } from '@/services/authService';
 
 const quickActions = [
   {
@@ -11,11 +13,11 @@ const quickActions = [
     description: 'Browse verified listings',
     color: '#FEF3C7',
     textColor: '#92400E',
-    route: '/housing'
+    route: '/explore'
   },
   {
     id: 2,
-    title: 'Transport Card',
+    title: 'Transport Card',  
     description: 'Get your student pass',
     color: '#DBEAFE',
     textColor: '#1E40AF',
@@ -31,24 +33,33 @@ const quickActions = [
   },
 ];
 
-const upcomingEvents = [
-  {
-    id: 1,
-    title: 'Welcome Aperitivo',
-    date: 'Today, 19:00',
-    location: 'Piazza Maggiore',
-    image: 'https://images.unsplash.com/photo-1529604278261-8bfcdb00a7b9?auto=format&fit=crop&q=80&w=400',
-  },
-  {
-    id: 2,
-    title: 'Italian Language Exchange',
-    date: 'Tomorrow, 18:30',
-    location: 'Biblioteca Salaborsa',
-    image: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&q=80&w=400',
-  },
-];
-
 export default function HomeScreen() {
+  const { profile } = useAuth();
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch events when component mounts
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const events = await eventsService.getEvents();
+        // Sort events by date and take only the upcoming ones
+        const sortedEvents = events
+          .filter(event => new Date(event.date) >= new Date())
+          .sort((a, b) => new Date(a.date) - new Date(b.date))
+          .slice(0, 3); // Take only the first 3 upcoming events
+          
+        setUpcomingEvents(sortedEvents);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, []);
+
   const handleQuickActionPress = (route) => {
     router.push(route);
   };
@@ -61,13 +72,43 @@ export default function HomeScreen() {
     router.push('/events');
   };
 
+  // Function to get greeting based on time of day
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  // Format date for display
+  const formatEventDate = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+      return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (date.toDateString() === tomorrow.toDateString()) {
+      return `Tomorrow, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      return date.toLocaleDateString([], { 
+        weekday: 'short', 
+        day: 'numeric', 
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good morning</Text>
-            <Text style={styles.name}>Sarah</Text>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
+            <Text style={styles.name}>{profile?.fullname || 'User'}</Text>
           </View>
           <Pressable style={styles.iconButton}>
             <Bell size={24} color="#1F2937" />
@@ -114,20 +155,29 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           
-          {upcomingEvents.map((event) => (
-            <Pressable 
-              key={event.id} 
-              style={styles.eventCard}
-              onPress={() => handleEventPress(event.id)}
-            >
-              <Image source={{ uri: event.image }} style={styles.eventImage} />
-              <View style={styles.eventInfo}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <Text style={styles.eventDate}>{event.date}</Text>
-                <Text style={styles.eventLocation}>{event.location}</Text>
-              </View>
-            </Pressable>
-          ))}
+          {loading ? (
+            <Text style={styles.loadingText}>Loading events...</Text>
+          ) : upcomingEvents.length > 0 ? (
+            upcomingEvents.map((event) => (
+              <Pressable 
+                key={event.$id} 
+                style={styles.eventCard}
+                onPress={() => handleEventPress(event.$id)}
+              >
+                <Image 
+                  source={{ uri: event.image_url || 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&q=80&w=400' }} 
+                  style={styles.eventImage} 
+                />
+                <View style={styles.eventInfo}>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <Text style={styles.eventDate}>{formatEventDate(event.date)}</Text>
+                  <Text style={styles.eventLocation}>{event.location}</Text>
+                </View>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={styles.noEventsText}>No upcoming events</Text>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -266,5 +316,19 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#6B7280',
+  },
+  loadingText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  noEventsText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
 });
