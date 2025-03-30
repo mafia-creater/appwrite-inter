@@ -4,12 +4,11 @@ import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, School, Mail, Phone, CreditCard as Edit, LogOut } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { useAuth } from '@/hooks/useAuth';
 
 import { ActivityIndicator } from 'react-native';
 
 type UserProfile = {
-  $id?: string;
+  id?: string;
   email: string;
   fullname: string;
   phone: string;
@@ -19,9 +18,20 @@ type UserProfile = {
   interests: string[];
   avatar: string;
   bio: string;
+};
 
-  created_at?: string;
-  updated_at?: string;
+// Mock data for demonstration purposes
+const MOCK_USER_PROFILE: UserProfile = {
+  id: 'user123',
+  email: 'student@university.edu',
+  fullname: 'Alex Student',
+  phone: '+1 (555) 123-4567',
+  university: 'University of Technology',
+  course: 'Computer Science',
+  nationality: 'Canadian',
+  interests: ['Programming', 'UI Design', 'Machine Learning', 'Mobile Apps'],
+  avatar: 'https://via.placeholder.com/80',
+  bio: 'Computer Science student passionate about mobile development'
 };
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
@@ -39,7 +49,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     if (this.state.hasError) {
       return (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.errorText}>Authentication system error. Please restart the app.</Text>
+          <Text style={styles.errorText}>An error occurred. Please restart the app.</Text>
         </SafeAreaView>
       );
     }
@@ -48,84 +58,49 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 function ProfileScreenContent() {
-  const { user, logout, isAuthenticated, isLoading: authLoading } = useAuth();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const userService = new UserService();
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+
+  // Mock logout function
+  const logout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Logout', 
+          style: 'destructive',
+          onPress: () => {
+            // In a real app, this would clear auth state
+            setIsAuthenticated(false);
+            router.replace('/(auth)/sign-in');
+          }
+        }
+      ]
+    );
+  };
 
   useEffect(() => {
+    // Simulate loading profile data
     const loadProfile = async () => {
-      console.log('Auth state:', { isAuthenticated, authLoading, user });
-
-      if (authLoading) {
-        return; // Wait for auth to complete
-      }
-
-      if (!user?.$id) {
-        console.error('No user ID found');
-        setError('No authenticated user found');
-        setLoading(false);
-        
-        Alert.alert(
-          'Session Expired', 
-          'Please sign in again to continue',
-          [
-            { 
-              text: 'Sign In', 
-              onPress: () => router.replace('/(auth)/sign-in') 
-            }
-          ]
-        );
-        return;
-      }
-
       try {
-        console.log('Fetching profile for user ID:', user.$id);
-        const profile = await userService.getUserProfile(user.$id);
-        console.log('Profile data:', profile);
-
-        if (profile) {
-          setUserProfile(profile);
-        } else {
-          setError('Profile not found');
-          Alert.alert(
-            'Complete Your Profile', 
-            'Please finish setting up your account',
-            [
-              { 
-                text: 'Continue', 
-                onPress: () => router.replace('/(auth)/user-info') 
-              }
-            ]
-          );
-        }
+        // Simulate network delay
+        setTimeout(() => {
+          setUserProfile(MOCK_USER_PROFILE);
+          setLoading(false);
+        }, 1000);
       } catch (err) {
         console.error('Profile load error:', err);
         setError('Failed to load profile');
-        Alert.alert(
-          'Error', 
-          'Could not load your profile data',
-          [
-            { text: 'Try Again', onPress: loadProfile },
-            { text: 'Sign Out', onPress: logout }
-          ]
-        );
-      } finally {
         setLoading(false);
       }
     };
 
     loadProfile();
-  }, [user?.$id, authLoading]);
-
-  if (authLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color="#0000ff" />
-      </SafeAreaView>
-    );
-  }
+  }, []);
 
   if (loading) {
     return (
@@ -198,7 +173,7 @@ function ProfileScreenContent() {
             style={styles.editButton} 
             onPress={() => router.push({
               pathname: '/profile/edit',
-              params: { userId: user?.$id }
+              params: { userId: userProfile.id }
             })}
             testID="edit-profile-button"
           >

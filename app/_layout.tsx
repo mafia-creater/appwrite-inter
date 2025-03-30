@@ -26,7 +26,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(app)" options={{ headerShown: false }} />
       </Stack>
-      <Redirect href="/(auth)/onboarding" />
+      {/* <Redirect href="/(auth)/onboarding" /> */}
     </>
   );
 }

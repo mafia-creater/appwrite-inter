@@ -1,7 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
 
 import { ActivityIndicator, View } from 'react-native';
-import { Chrome as Home, Users, Calendar, Map, User } from 'lucide-react-native';
+import { Chrome as Home, Users, Calendar, Map, User, Book } from 'lucide-react-native';
 
 export default function AppLayout() {
   return (
@@ -46,6 +46,14 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <Map size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name='resources'
+        options={{
+          title: 'Resources',
+          tabBarIcon: ({ color, size }) => <Book size={size} color={color} />,
+        }}
+      />
+
       <Tabs.Screen
         name="profile"
         options={{
