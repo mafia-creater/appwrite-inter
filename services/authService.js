@@ -443,25 +443,44 @@ class HousingService {
       
       if (imageFiles && imageFiles.length > 0) {
         for (const imageFile of imageFiles) {
-          const uploadedFile = await storage.createFile(
-            storageId,
-            ID.unique(),
-            imageFile
-          );
-          
-          // Get file preview URL
-          const imageUrl = storage.getFilePreview(
-            storageId,
-            uploadedFile.$id,
-            800, // width
-            600, // height
-            'center', // gravity
-            100 // quality
-          );
-          
-          imageUrls.push(imageUrl);
+          try {
+            console.log('Uploading image:', imageFile);
+            
+            // Generate a unique ID for the file
+            const fileId = ID.unique();
+            
+            // Upload the file using the SDK
+            await storage.createFile(
+              storageId,
+              fileId,  // Use the pre-generated ID
+              {
+                uri: imageFile.uri,
+                name: imageFile.name || `image-${Date.now()}.jpg`,
+                type: imageFile.type || 'image/jpeg'
+              }
+            );
+            
+            console.log('Upload successful with ID:', fileId);
+            
+            // Since we know the ID, we can generate the preview URL directly
+            const imageUrl = storage.getFilePreview(
+              storageId,
+              fileId,
+              800, // width
+              600, // height
+              'center', // gravity
+              100 // quality
+            );
+            
+            imageUrls.push(imageUrl);
+          } catch (uploadError) {
+            console.error('Error uploading individual image:', uploadError);
+            // Continue with the next image instead of failing the whole process
+          }
         }
       }
+      
+      console.log('Final image URLs:', imageUrls);
       
       // Create housing document
       return await databases.createDocument(

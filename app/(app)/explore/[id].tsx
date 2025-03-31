@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Image, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ScrollView,
   TouchableOpacity,
+  Dimensions,
   ActivityIndicator,
   RefreshControl
 } from 'react-native';
@@ -28,6 +29,10 @@ export default function HousingDetailScreen() {
       setIsLoading(true);
       const propertyData = await housingService.getHousingListing(id);
       setProperty(propertyData);
+      // Add this to your loadPropertyDetails function
+      console.log('Property data:', propertyData);
+      console.log('Images data type:', typeof propertyData.images);
+      console.log('Images value:', propertyData.images);
     } catch (error) {
       console.error('Failed to load property details:', error);
       setError('Failed to load property details. Please try again later.');
@@ -99,7 +104,7 @@ export default function HousingDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -124,14 +129,20 @@ export default function HousingDetailScreen() {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           style={styles.imageScroller}>
-          {property.images && property.images.length > 0 ? (
+          {Array.isArray(property.images) && property.images.length > 0 ? (
             property.images.map((image, index) => (
-              <Image key={index} source={{ uri: image }} style={styles.image} />
+              <Image
+                key={index}
+                source={{ uri: image }}
+                style={[styles.image, { width: Dimensions.get('window').width }]}
+                resizeMode="cover"
+                onError={(e) => console.log('Image load error:', e.nativeEvent.error)}
+              />
             ))
           ) : (
-            <Image 
-              source={{ uri: 'https://static.vecteezy.com/system/resources/previews/021/736/279/non_2x/transparent-background-4k-empty-grid-checkered-layout-wallpaper-free-vector.jpg' }} 
-              style={styles.image} 
+            <Image
+              source={{ uri: 'https://static.vecteezy.com/system/resources/previews/021/736/279/non_2x/transparent-background-4k-empty-grid-checkered-layout-wallpaper-free-vector.jpg' }}
+              style={[styles.image, { width: Dimensions.get('window').width }]}
             />
           )}
         </ScrollView>
@@ -191,6 +202,7 @@ export default function HousingDetailScreen() {
           <Text style={styles.price}>€{property.price}</Text>
           <Text style={styles.priceUnit}>/month</Text>
         </View>
+        
         <TouchableOpacity style={styles.button}>
           <Text style={styles.buttonText}>Contact Landlord</Text>
         </TouchableOpacity>
