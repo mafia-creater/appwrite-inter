@@ -5,11 +5,11 @@ import { X, Send } from 'lucide-react-native';
 interface ContactLandlordModalProps {
   visible: boolean;
   onClose: () => void;
-  listingId: string;
+  listingId: string;  
   listingTitle: string;
 }
 
-export function ContactLandlordModal() {
+export default function ContactLandlordModal() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);

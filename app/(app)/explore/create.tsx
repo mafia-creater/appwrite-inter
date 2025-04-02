@@ -35,48 +35,72 @@ export default function CreateHousingScreen() {
           return;
         }
       }
-
+  
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.8,
+        exif: false,
       });
-
+  
       if (!result.canceled && result.assets) {
         // Add new images to existing images
         setImages([...images, ...result.assets]);
+        console.log("Selected images:", result.assets);
       }
     } catch (e) {
       console.error('Error picking images:', e);
       setError('Failed to pick images. Please try again.');
     }
   };
-
+  
+  // Add the missing removeImage function
   const removeImage = (index) => {
-    const newImages = [...images];
-    newImages.splice(index, 1);
-    setImages(newImages);
+    const updatedImages = [...images];
+    updatedImages.splice(index, 1);
+    setImages(updatedImages);
   };
-
-  // Prepare file for upload (similar to events)
-  const prepareImageFiles = async () => {
+  
+  // Fixed prepare image files function
+  const prepareImageFiles = () => {
     if (!images || images.length === 0) return [];
     
     return images.map(img => {
-      // Get file extension
+      // Extract file extension (handling both file:// URIs and asset library URIs)
       const uriParts = img.uri.split('.');
-      const extension = uriParts[uriParts.length - 1];
+      const extension = uriParts[uriParts.length - 1].toLowerCase();
       
-      // Create file object
+      // Handle the extension appropriately
+      let type;
+      switch (extension) {
+        case 'jpg':
+        case 'jpeg':
+          type = 'image/jpeg';
+          break;
+        case 'png':
+          type = 'image/png';
+          break;
+        case 'gif':
+          type = 'image/gif';
+          break;
+        case 'heic':
+          type = 'image/heic';
+          break;
+        default:
+          type = 'image/jpeg'; // Fallback
+      }
+      
+      // Return properly formatted file object that includes uri
       return {
         uri: img.uri,
-        name: `housing-${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`,
-        type: img.type || `image/${extension}`,
-        size: img.fileSize
+        name: `housing-${Date.now()}.${extension}`,
+        type: type,
+        size: img.fileSize || 0 // Handle case where fileSize might be undefined
       };
     });
   };
-
+  
+  // Modified handle submit function
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -102,11 +126,25 @@ export default function CreateHousingScreen() {
         area: formData.area ? parseFloat(formData.area) : 0,
       };
   
-      // Prepare images for upload (similar to events approach)
-      const imageFiles = await prepareImageFiles();
+      // Prepare images for upload
+      const imageFiles = prepareImageFiles();
+      console.log("Prepared image files:", imageFiles);
+      
+      // Additional check to ensure valid image files
+      if (imageFiles.length > 0) {
+        for (const file of imageFiles) {
+          if (!file.uri) {
+            console.error("Image file missing URI:", file);
+            setError("One or more image files are invalid. Please try again.");
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
   
       // Create the housing listing
-      await housingService.createHousingListing(listingData, imageFiles);
+      const result = await housingService.createHousingListing(listingData, imageFiles);
+      console.log("Listing created:", result);
       
       // Show success message
       Alert.alert('Success', 'Property listing created successfully!');
@@ -120,6 +158,7 @@ export default function CreateHousingScreen() {
       setIsSubmitting(false);
     }
   };
+
 
   return (
     <SafeAreaView style={styles.container}>
