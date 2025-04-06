@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { ArrowLeft, Clock, Calendar, ThumbsUp, MessageCircle, Bookmark, Share2 } from 'lucide-react-native';
+import { ArrowLeft, Clock, Calendar, ThumbsUp, MessageCircle, Bookmark, Share2, ChevronRight } from 'lucide-react-native';
+import Markdown from 'react-native-markdown-display';
 
 const articles = {
   '1': {
@@ -128,11 +129,26 @@ Remember, the university staff and student community are here to help you settle
     likes: 245,
     comments: 18,
     bookmarks: 156,
+    relatedArticles: [
+      {
+        id: '2',
+        title: 'Student Housing Guide',
+        image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?q=80&w=200&auto=format&fit=crop',
+        category: 'Housing',
+      },
+      {
+        id: '3',
+        title: 'Italian Language Tips',
+        image: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?q=80&w=200&auto=format&fit=crop',
+        category: 'Language',
+      },
+    ],
   },
 };
 
 export default function ResourceDetailScreen() {
   const { id } = useLocalSearchParams();
+  const { width } = useWindowDimensions();
   const article = articles[id as string];
 
   if (!article) {
@@ -145,7 +161,7 @@ export default function ResourceDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <ArrowLeft size={24} color="#000" />
@@ -160,9 +176,15 @@ export default function ResourceDetailScreen() {
           </View>
         </View>
 
-        <Image source={{ uri: article.image }} style={styles.coverImage} />
+        <Image source={{ uri: article.image }} style={[styles.coverImage, { width }]} />
 
         <View style={styles.articleContent}>
+          <View style={styles.breadcrumbs}>
+            <Text style={styles.breadcrumbText}>Resources</Text>
+            <ChevronRight size={16} color="#666" />
+            <Text style={styles.breadcrumbText}>Getting Started</Text>
+          </View>
+
           <Text style={styles.title}>{article.title}</Text>
 
           <View style={styles.authorRow}>
@@ -197,7 +219,35 @@ export default function ResourceDetailScreen() {
             </View>
           </View>
 
-          <Text style={styles.content}>{article.content}</Text>
+          <View style={styles.contentWrapper}>
+            <Markdown style={markdownStyles}>
+              {article.content}
+            </Markdown>
+          </View>
+
+          {article.relatedArticles && (
+            <View style={styles.relatedSection}>
+              <Text style={styles.relatedTitle}>Related Articles</Text>
+              <View style={styles.relatedArticles}>
+                {article.relatedArticles.map((related) => (
+                  <TouchableOpacity
+                    key={related.id}
+                    style={styles.relatedArticle}
+                    onPress={() => router.push(`/resources/${related.id}`)}
+                  >
+                    <Image source={{ uri: related.image }} style={styles.relatedImage} />
+                    <View style={styles.relatedContent}>
+                      <View style={styles.relatedCategory}>
+                        <Text style={styles.relatedCategoryText}>{related.category}</Text>
+                      </View>
+                      <Text style={styles.relatedArticleTitle}>{related.title}</Text>
+                      <Text style={styles.readMore}>Read More</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -222,6 +272,52 @@ export default function ResourceDetailScreen() {
     </SafeAreaView>
   );
 }
+
+const markdownStyles = {
+  body: {
+    color: '#333',
+    fontSize: 16,
+    lineHeight: 24,
+    fontFamily: 'Inter_400Regular',
+  },
+  heading1: {
+    fontSize: 28,
+    fontFamily: 'Inter_700Bold',
+    marginTop: 32,
+    marginBottom: 16,
+    color: '#000',
+  },
+  heading2: {
+    fontSize: 24,
+    fontFamily: 'Inter_600SemiBold',
+    marginTop: 24,
+    marginBottom: 12,
+    color: '#000',
+  },
+  heading3: {
+    fontSize: 20,
+    fontFamily: 'Inter_600SemiBold',
+    marginTop: 20,
+    marginBottom: 10,
+    color: '#000',
+  },
+  paragraph: {
+    marginBottom: 16,
+    lineHeight: 24,
+  },
+  list_item: {
+    marginBottom: 8,
+  },
+  bullet_list: {
+    marginBottom: 16,
+  },
+  ordered_list: {
+    marginBottom: 16,
+  },
+  strong: {
+    fontFamily: 'Inter_600SemiBold',
+  },
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -273,16 +369,26 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   coverImage: {
-    width: '100%',
     height: 300,
   },
   articleContent: {
     padding: 24,
   },
+  breadcrumbs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  breadcrumbText: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#666',
+  },
   title: {
     fontSize: 32,
     fontFamily: 'Inter_700Bold',
     marginBottom: 16,
+    lineHeight: 40,
   },
   authorRow: {
     flexDirection: 'row',
@@ -321,7 +427,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 24,
     paddingVertical: 16,
-    border: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
     marginBottom: 24,
   },
   stat: {
@@ -333,6 +441,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter_500Medium',
     color: '#666',
+  },
+  contentWrapper: {
+    marginBottom: 32,
+  },
+  relatedSection: {
+    marginTop: 32,
+    paddingTop: 32,
+    borderTopWidth: 1,
+    borderColor: '#eee',
+  },
+  relatedTitle: {
+    fontSize: 24,
+    fontFamily: 'Inter_600SemiBold',
+    marginBottom: 16,
+  },
+  relatedArticles: {
+    gap: 16,
+  },
+  relatedArticle: {
+    flexDirection: 'row',
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  relatedImage: {
+    width: 120,
+    height: 120,
+  },
+  relatedContent: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  relatedCategory: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  relatedCategoryText: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+    color: '#666',
+  },
+  relatedArticleTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
+    marginBottom: 8,
+  },
+  readMore: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#000',
   },
   footer: {
     position: 'absolute',

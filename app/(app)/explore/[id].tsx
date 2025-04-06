@@ -14,6 +14,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Share2, Bed, Bath, MapPin, Check } from 'lucide-react-native';
 import { housingService } from '@/services/authService'; // Import the housing service
+import ContactLandlordModal from './contact'; // Adjust the path as needed
 
 export default function HousingDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -21,6 +22,7 @@ export default function HousingDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [contactModalVisible, setContactModalVisible] = useState(false);
 
   // Function to load property details
   const loadPropertyDetails = async () => {
@@ -203,10 +205,20 @@ export default function HousingDetailScreen() {
           <Text style={styles.priceUnit}>/month</Text>
         </View>
         
-        <TouchableOpacity style={styles.button}>
+        <TouchableOpacity 
+          onPress={() => setContactModalVisible(true)} 
+          style={styles.button}
+        >
           <Text style={styles.buttonText}>Contact Landlord</Text>
         </TouchableOpacity>
       </View>
+
+      <ContactLandlordModal
+        visible={contactModalVisible}
+        onClose={() => setContactModalVisible(false)}
+        listingId={id.toString()}
+        listingTitle={property.title}
+      />
     </SafeAreaView>
   );
 }

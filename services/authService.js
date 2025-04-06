@@ -23,6 +23,7 @@ const PROFILES_COLLECTION_ID = '67e3f0540010aa16d205';
 const EVENTS_COLLECTION_ID = '67e424f0000ee6d790ad'; 
 const storageId = '67e8f9ef001984a06104';
 const HOUSING_COLLECTION_ID = '67e427420038f517a001';
+const MESSAGES_COLLECTION_ID = '67ee24d500114f897c22';
 
 export class AuthService {
   // Register a new user
@@ -418,6 +419,28 @@ class HousingService {
       throw error;
     }
   }
+
+  // Get housing listings by user ID
+  async searchProfiles(ownerId) {
+    try {
+      const DATABASE_ID = '67e3f0450005208dcedc';
+      const PROFILES_COLLECTION_ID = '67e3f0540010aa16d205';
+      
+      // Import Query directly to prevent errors
+      const { Query } = require('react-native-appwrite');
+      
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        PROFILES_COLLECTION_ID,
+        [Query.equal('userId', ownerId)]
+      );
+      
+      return response.documents;
+    } catch (error) {
+      console.error("Error searching profiles:", error);
+      return [];
+    }
+  }
   
   // Get housing listing by ID
   async getHousingListing(listingId) {
@@ -640,6 +663,30 @@ class HousingService {
       throw error;
     }
   }
+
+  async createDocument(collectionId, documentId, data) {
+    return await databases.createDocument(
+      DATABASE_ID,
+      collectionId,
+      documentId,
+      data
+    );
+  }
+  
+  async getMessages(userId) {
+    try {
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        MESSAGES_COLLECTION_ID,
+        [Query.equal('userId', userId)]
+      );
+      return response.documents;
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      throw error;
+    }
+  }
 }
+
 
 export const housingService = new HousingService();
