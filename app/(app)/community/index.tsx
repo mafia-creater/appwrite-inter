@@ -1,66 +1,165 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, Modal } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, Modal, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link } from 'expo-router';
 import { Search, MessageCircle, Heart, X, Image as ImageIcon } from 'lucide-react-native';
-
-const posts = [
-  {
-    id: '1',
-    author: {
-      name: 'Maria Garcia',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=100&auto=format&fit=crop',
-      university: 'University of Bologna',
-      program: 'Masters in International Relations',
-    },
-    content: 'Looking for roommates! I\'m starting my Masters in International Relations this September. Anyone interested in sharing an apartment near the city center?\n\nPreferences:\n• 2-3 bedroom apartment\n• Near Piazza Maggiore\n• Budget: €400-500/month\n• Female students preferred\n• Non-smokers\n\nI love cooking, enjoy occasional movie nights, and respect everyone\'s privacy. DM me if interested! 🏠✨',
-    likes: 24,
-    comments: 8,
-    timeAgo: '2 hours ago',
-    tags: ['Housing', 'Roommate Search', 'Student Life'],
-  },
-  {
-    id: '2',
-    author: {
-      name: 'Alex Chen',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=100&auto=format&fit=crop',
-      university: 'Johns Hopkins SAIS',
-      program: 'MA in International Affairs',
-    },
-    content: 'Just discovered this amazing pizzeria near Via Zamboni! They have the best margherita I\'ve ever had. Who wants to join for dinner this weekend? 🍕\n\nRestaurant Details:\n📍 Pizzeria da Luigi\n⏰ Open till midnight\n💰 Student discount available\n⭐ Must try their buffalo mozzarella!\n\nThinking of going Saturday around 8 PM. Drop a comment if you\'re interested in joining! Great chance to meet fellow international students! 🌍',
-    likes: 45,
-    comments: 12,
-    timeAgo: '5 hours ago',
-    tags: ['Food', 'Social', 'Student Meetup'],
-  },
-  {
-    id: '3',
-    author: {
-      name: 'Sophie Laurent',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=100&auto=format&fit=crop',
-      university: 'University of Bologna',
-      program: 'PhD in Art History',
-    },
-    content: '📚 Study Group Formation for Art History Course!\n\nHi everyone! I\'m organizing a study group for Professor Rossi\'s Renaissance Art course. We\'ll meet twice a week at the library to discuss readings and prepare for presentations.\n\nDetails:\n• Meeting Days: Tuesdays & Thursdays\n• Time: 3-5 PM\n• Location: University Library, 2nd Floor\n• Starting: Next Week\n\nAll levels welcome! We can help each other with Italian terminology and share resources. Comment below if interested! 📖✍️',
-    likes: 32,
-    comments: 15,
-    timeAgo: '7 hours ago',
-    tags: ['Academics', 'Study Group', 'Art History'],
-  },
-];
+import { postService } from '@/services/authService';
+import { authService } from '@/services/authService';
+import { formatDistanceToNow } from 'date-fns';
 
 export default function CommunityScreen() {
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userProfiles, setUserProfiles] = useState({});
   const [newPost, setNewPost] = useState({
     content: '',
     tags: '',
   });
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const handlePost = () => {
-    // Here you would typically send the post to your backend
-    setIsModalVisible(false);
-    setNewPost({ content: '', tags: '' });
+  useEffect(() => {
+    // Get the current user and load posts
+    const initialize = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        setCurrentUser(user);
+        await loadPosts();
+      } catch (error) {
+        console.error('Error initializing community screen:', error);
+        Alert.alert('Error', 'Failed to load community posts');
+      }
+    };
+
+    initialize();
+  }, []);
+
+  const loadPosts = async () => {
+    try {
+      setLoading(true);
+      const fetchedPosts = await postService.getPosts();
+      setPosts(fetchedPosts);
+      
+      // Load user profiles for all post authors
+      await loadUserProfiles(fetchedPosts);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+      setLoading(false);
+      Alert.alert('Error', 'Failed to load posts');
+    }
   };
+
+  const loadUserProfiles = async (fetchedPosts) => {
+    const uniqueAuthorIds = [...new Set(fetchedPosts.map(post => post.authorId))];
+    
+    const profiles = {};
+    for (const authorId of uniqueAuthorIds) {
+      try {
+        // Get user profile data
+        const profilesData = await authService.databases.listDocuments(
+          authService.DATABASE_ID,
+          authService.PROFILES_COLLECTION_ID,
+          [
+            Query.equal('userId', authorId)
+          ]
+        );
+        
+        if (profilesData.documents.length > 0) {
+          profiles[authorId] = profilesData.documents[0];
+        }
+      } catch (error) {
+        console.error(`Error loading profile for user ${authorId}:`, error);
+      }
+    }
+    
+    setUserProfiles(profiles);
+  };
+
+  const handlePost = async () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'You must be logged in to post');
+      return;
+    }
+    
+    if (!newPost.content.trim()) {
+      Alert.alert('Error', 'Post content cannot be empty');
+      return;
+    }
+    
+    try {
+      const tagsArray = newPost.tags
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => tag.length > 0);
+      
+      await postService.createPost(
+        currentUser.$id,
+        newPost.content.trim(),
+        tagsArray
+      );
+      
+      // Reset form and close modal
+      setNewPost({ content: '', tags: '' });
+      setIsModalVisible(false);
+      
+      // Reload posts
+      await loadPosts();
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post');
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      await loadPosts();
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const searchResults = await postService.getPostsByTag(searchTerm.trim());
+      setPosts(searchResults);
+      await loadUserProfiles(searchResults);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error searching posts:', error);
+      setLoading(false);
+      Alert.alert('Error', 'Failed to search posts');
+    }
+  };
+
+  const formatTime = (dateString) => {
+    try {
+      return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    } catch (error) {
+      return 'some time ago';
+    }
+  };
+
+  const getAuthorInfo = (authorId) => {
+    const profile = userProfiles[authorId] || {};
+    return {
+      name: profile.fullname || 'Anonymous User',
+      university: profile.university || 'University not specified',
+      program: profile.course || 'Program not specified',
+      avatar: profile.avatarUrl || 'https://via.placeholder.com/100',
+    };
+  };
+
+  if (loading && posts.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Loading posts...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -76,50 +175,73 @@ export default function CommunityScreen() {
             style={styles.searchInput}
             placeholder="Search discussions..."
             placeholderTextColor="#666"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            onSubmitEditing={handleSearch}
           />
         </View>
 
         <View style={styles.posts}>
-          {posts.map((post) => (
-            <Link key={post.id} href={`/community/${post.id}`} asChild>
-              <TouchableOpacity style={styles.post}>
-                <View style={styles.postHeader}>
-                  <Image source={{ uri: post.author.avatar }} style={styles.avatar} />
-                  <View style={styles.authorInfo}>
-                    <Text style={styles.authorName}>{post.author.name}</Text>
-                    <Text style={styles.authorUniversity}>{post.author.university}</Text>
-                    <Text style={styles.authorProgram}>{post.author.program}</Text>
-                  </View>
-                  <Text style={styles.timeAgo}>{post.timeAgo}</Text>
-                </View>
-
-                <Text style={styles.postContent} numberOfLines={6}>{post.content}</Text>
-
-                <View style={styles.tags}>
-                  {post.tags.map((tag, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{tag}</Text>
+          {posts.length > 0 ? (
+            posts.map((post) => {
+              const author = getAuthorInfo(post.authorId);
+              
+              return (
+                <Link key={post.$id} href={`/community/${post.$id}`} asChild>
+                  <TouchableOpacity style={styles.post}>
+                    <View style={styles.postHeader}>
+                      <Image source={{ uri: author.avatar }} style={styles.avatar} />
+                      <View style={styles.authorInfo}>
+                        <Text style={styles.authorName}>{author.name}</Text>
+                        <Text style={styles.authorUniversity}>{author.university}</Text>
+                        <Text style={styles.authorProgram}>{author.program}</Text>
+                      </View>
+                      <Text style={styles.timeAgo}>{formatTime(post.createdAt)}</Text>
                     </View>
-                  ))}
-                </View>
 
-                <View style={styles.postActions}>
-                  <TouchableOpacity style={styles.action}>
-                    <Heart size={20} color="#666" />
-                    <Text style={styles.actionText}>{post.likes}</Text>
+                    <Text style={styles.postContent} numberOfLines={6}>{post.content}</Text>
+
+                    <View style={styles.tags}>
+                      {post.tags && post.tags.map((tag, index) => (
+                        <View key={index} style={styles.tag}>
+                          <Text style={styles.tagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    <View style={styles.postActions}>
+                      <TouchableOpacity style={styles.action}>
+                        <Heart size={20} color="#666" />
+                        <Text style={styles.actionText}>{post.likes || 0}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.action}>
+                        <MessageCircle size={20} color="#666" />
+                        <Text style={styles.actionText}>{post.commentsCount || 0}</Text>
+                      </TouchableOpacity>
+                    </View>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.action}>
-                    <MessageCircle size={20} color="#666" />
-                    <Text style={styles.actionText}>{post.comments}</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            </Link>
-          ))}
+                </Link>
+              );
+            })
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No posts found</Text>
+              <Text style={styles.emptyStateSubtext}>Be the first to start a discussion!</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 
-      <TouchableOpacity style={styles.fab} onPress={() => setIsModalVisible(true)}>
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={() => {
+          if (currentUser) {
+            setIsModalVisible(true);
+          } else {
+            Alert.alert('Login Required', 'You need to log in to create a post');
+          }
+        }}
+      >
         <Text style={styles.fabText}>New Post</Text>
       </TouchableOpacity>
 
@@ -166,7 +288,10 @@ export default function CommunityScreen() {
               </TouchableOpacity>
             </ScrollView>
 
-            <TouchableOpacity style={styles.postButton} onPress={handlePost}>
+            <TouchableOpacity 
+              style={styles.postButton} 
+              onPress={handlePost}
+            >
               <Text style={styles.postButtonText}>Post</Text>
             </TouchableOpacity>
           </View>
@@ -176,7 +301,37 @@ export default function CommunityScreen() {
   );
 }
 
+// Styles remain the same as in your original code, with these additions:
 const styles = StyleSheet.create({
+  // ... your existing styles
+  
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontFamily: 'Inter_600SemiBold',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#fff',

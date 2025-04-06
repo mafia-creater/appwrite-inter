@@ -25,6 +25,9 @@ const storageId = '67e8f9ef001984a06104';
 const HOUSING_COLLECTION_ID = '67e427420038f517a001';
 const MESSAGES_COLLECTION_ID = '67ee24d500114f897c22';
 const RESOURCES_COLLECTION_ID = '67f22522003308240bb2';
+const POSTS_COLLECTION_ID = '67e40278001532736fbd';
+const COMMENTS_COLLECTION_ID = '67f28e49003d6740aa39'; 
+
 
 export class AuthService {
   // Register a new user
@@ -990,3 +993,241 @@ export class ResourcesService {
 }
 // Create and export a singleton instance
 export const resourcesService = new ResourcesService();
+
+export class PostService {
+  // Create a new post
+  async createPost(userId, content, tags) {
+    try {
+      const tagsArray = Array.isArray(tags) ? tags : tags.split(',').map(tag => tag.trim());
+      
+      const post = await databases.createDocument(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        ID.unique(),
+        {
+          authorId: userId,
+          content: content,
+          tags: tagsArray,
+          likes: 0,
+          commentsCount: 0,
+          createdAt: new Date().toISOString(),
+        }
+      );
+      
+      return post;
+    } catch (error) {
+      console.error('Error creating post:', error);
+      throw error;
+    }
+  }
+
+  // Get all posts
+  async getPosts(limit = 20) {
+    try {
+      const posts = await databases.listDocuments(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        [
+          Query.orderDesc('createdAt'),
+          Query.limit(limit)
+        ]
+      );
+      
+      return posts.documents;
+    } catch (error) {
+      console.error('Error getting posts:', error);
+      throw error;
+    }
+  }
+
+  // Get a single post by ID
+  async getPost(postId) {
+    try {
+      const post = await databases.getDocument(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        postId
+      );
+      
+      return post;
+    } catch (error) {
+      console.error('Error getting post:', error);
+      throw error;
+    }
+  }
+
+  // Get posts by tag
+  async getPostsByTag(tag, limit = 20) {
+    try {
+      const posts = await databases.listDocuments(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        [
+          Query.search('tags', tag),
+          Query.orderDesc('createdAt'),
+          Query.limit(limit)
+        ]
+      );
+      
+      return posts.documents;
+    } catch (error) {
+      console.error('Error getting posts by tag:', error);
+      throw error;
+    }
+  }
+
+  // Get posts by user
+  async getPostsByUser(userId, limit = 20) {
+    try {
+      const posts = await databases.listDocuments(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        [
+          Query.equal('authorId', userId),
+          Query.orderDesc('createdAt'),
+          Query.limit(limit)
+        ]
+      );
+      
+      return posts.documents;
+    } catch (error) {
+      console.error('Error getting posts by user:', error);
+      throw error;
+    }
+  }
+
+  // Like/unlike a post
+  async toggleLikePost(postId, increment = true) {
+    try {
+      const post = await this.getPost(postId);
+      const currentLikes = post.likes || 0;
+      
+      const updatedPost = await databases.updateDocument(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        postId,
+        {
+          likes: increment ? currentLikes + 1 : Math.max(0, currentLikes - 1)
+        }
+      );
+      
+      return updatedPost;
+    } catch (error) {
+      console.error('Error updating post likes:', error);
+      throw error;
+    }
+  }
+
+  // Add a comment to a post
+  async addComment(postId, userId, content) {
+    try {
+      // Create the comment
+      const comment = await databases.createDocument(
+        DATABASE_ID,
+        COMMENTS_COLLECTION_ID,
+        ID.unique(),
+        {
+          postId: postId,
+          authorId: userId,
+          content: content,
+          likes: 0,
+          createdAt: new Date().toISOString()
+        }
+      );
+      
+      // Update the comments count on the post
+      const post = await this.getPost(postId);
+      await databases.updateDocument(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        postId,
+        {
+          commentsCount: (post.commentsCount || 0) + 1
+        }
+      );
+      
+      return comment;
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      throw error;
+    }
+  }
+
+  // Get comments for a post
+  async getComments(postId) {
+    try {
+      const comments = await databases.listDocuments(
+        DATABASE_ID,
+        COMMENTS_COLLECTION_ID,
+        [
+          Query.equal('postId', postId),
+          Query.orderDesc('createdAt')
+        ]
+      );
+      
+      return comments.documents;
+    } catch (error) {
+      console.error('Error getting comments:', error);
+      throw error;
+    }
+  }
+
+  // Like/unlike a comment
+  async toggleLikeComment(commentId, increment = true) {
+    try {
+      const comment = await databases.getDocument(
+        DATABASE_ID,
+        COMMENTS_COLLECTION_ID,
+        commentId
+      );
+      
+      const currentLikes = comment.likes || 0;
+      
+      const updatedComment = await databases.updateDocument(
+        DATABASE_ID,
+        COMMENTS_COLLECTION_ID,
+        commentId,
+        {
+          likes: increment ? currentLikes + 1 : Math.max(0, currentLikes - 1)
+        }
+      );
+      
+      return updatedComment;
+    } catch (error) {
+      console.error('Error updating comment likes:', error);
+      throw error;
+    }
+  }
+
+  // Delete a post
+  async deletePost(postId) {
+    try {
+      // Delete all comments for this post first
+      const comments = await this.getComments(postId);
+      
+      // Delete each comment
+      for (const comment of comments) {
+        await databases.deleteDocument(
+          DATABASE_ID,
+          COMMENTS_COLLECTION_ID,
+          comment.$id
+        );
+      }
+      
+      // Delete the post
+      await databases.deleteDocument(
+        DATABASE_ID,
+        POSTS_COLLECTION_ID,
+        postId
+      );
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      throw error;
+    }
+  }
+}
+
+// Create and export a singleton instance
+export const postService = new PostService();

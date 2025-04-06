@@ -1,55 +1,167 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { ArrowLeft, Heart, Send, MoveHorizontal as MoreHorizontal } from 'lucide-react-native';
-
-const posts = {
-  '1': {
-    id: '1',
-    author: {
-      name: 'Maria Garcia',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=100&auto=format&fit=crop',
-      university: 'University of Bologna',
-      program: 'Masters in International Relations',
-    },
-    content: 'Looking for roommates! I\'m starting my Masters in International Relations this September. Anyone interested in sharing an apartment near the city center?\n\nPreferences:\n• 2-3 bedroom apartment\n• Near Piazza Maggiore\n• Budget: €400-500/month\n• Female students preferred\n• Non-smokers\n\nI love cooking, enjoy occasional movie nights, and respect everyone\'s privacy. DM me if interested! 🏠✨',
-    likes: 24,
-    timeAgo: '2 hours ago',
-    tags: ['Housing', 'Roommate Search', 'Student Life'],
-    comments: [
-      {
-        id: 1,
-        author: {
-          name: 'Sofia Bianchi',
-          avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=100&auto=format&fit=crop',
-          university: 'University of Bologna',
-        },
-        content: 'Hey Maria! I\'m also looking for a roommate near Piazza Maggiore. I\'m starting my Masters in Art History. Would love to connect and discuss further! 😊',
-        timeAgo: '1 hour ago',
-        likes: 3,
-      },
-      {
-        id: 2,
-        author: {
-          name: 'Emma Chen',
-          avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?q=80&w=100&auto=format&fit=crop',
-          university: 'Johns Hopkins SAIS',
-        },
-        content: 'I know a great apartment on Via Zamboni that might interest you! It\'s a 3-bedroom place, about €450/month per person. Let me know if you\'d like more details.',
-        timeAgo: '45 minutes ago',
-        likes: 5,
-      },
-    ],
-  },
-  // Add other posts here...
-};
+import { postService } from '@/services/authService';
+import { authService } from '@/services/authService';
+import { formatDistanceToNow } from 'date-fns';
+import { Query } from 'react-native-appwrite';
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams();
-  const post = posts[id as string];
+  const [post, setPost] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [liked, setLiked] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userProfiles, setUserProfiles] = useState({});
+  
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        const user = await authService.getCurrentUser();
+        setCurrentUser(user);
+        await loadPost();
+      } catch (error) {
+        console.error('Error initializing post detail screen:', error);
+        Alert.alert('Error', 'Failed to load post details');
+      }
+    };
+
+    initialize();
+  }, [id]);
+
+  const loadPost = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch the post
+      const fetchedPost = await postService.getPost(id);
+      setPost(fetchedPost);
+      
+      // Fetch comments
+      const fetchedComments = await postService.getComments(id);
+      setComments(fetchedComments);
+      
+      // Collect all user IDs (post author + comment authors)
+      const userIds = [
+        fetchedPost.authorId,
+        ...fetchedComments.map(comment => comment.authorId)
+      ];
+      
+      // Fetch user profiles
+      await loadUserProfiles(userIds);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading post:', error);
+      setLoading(false);
+      Alert.alert('Error', 'Failed to load post');
+      router.back();
+    }
+  };
+
+  const loadUserProfiles = async (userIds) => {
+    const uniqueUserIds = [...new Set(userIds)];
+    const profiles = {};
+    
+    for (const userId of uniqueUserIds) {
+      try {
+        const profilesData = await authService.databases.listDocuments(
+          authService.DATABASE_ID,
+          authService.PROFILES_COLLECTION_ID,
+          [
+            Query.equal('userId', userId)
+          ]
+        );
+        
+        if (profilesData.documents.length > 0) {
+          profiles[userId] = profilesData.documents[0];
+        }
+      } catch (error) {
+        console.error(`Error loading profile for user ${userId}:`, error);
+      }
+    }
+    
+    setUserProfiles(profiles);
+  };
+
+  const getAuthorInfo = (authorId) => {
+    const profile = userProfiles[authorId] || {};
+    return {
+      name: profile.fullname || 'Anonymous User',
+      university: profile.university || 'University not specified',
+      program: profile.course || 'Program not specified',
+      avatar: profile.avatarUrl || 'https://via.placeholder.com/100',
+    };
+  };
+
+  const formatTime = (dateString) => {
+    try {
+      return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    } catch (error) {
+      return 'some time ago';
+    }
+  };
+
+  const handleLike = async () => {
+    if (!currentUser) {
+      Alert.alert('Login Required', 'You need to log in to like posts');
+      return;
+    }
+    
+    try {
+      await postService.toggleLikePost(post.$id, !liked);
+      setLiked(!liked);
+      
+      // Refresh post to get updated likes count
+      const updatedPost = await postService.getPost(post.$id);
+      setPost(updatedPost);
+    } catch (error) {
+      console.error('Error liking post:', error);
+      Alert.alert('Error', 'Failed to like post');
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!currentUser) {
+      Alert.alert('Login Required', 'You need to log in to comment');
+      return;
+    }
+    
+    if (!newComment.trim()) {
+      return;
+    }
+    
+    try {
+      await postService.addComment(post.$id, currentUser.$id, newComment.trim());
+      setNewComment('');
+      
+      // Refresh comments
+      const updatedComments = await postService.getComments(post.$id);
+      setComments(updatedComments);
+      
+      // Refresh post to get updated comment count
+      const updatedPost = await postService.getPost(post.$id);
+      setPost(updatedPost);
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment');
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Loading post...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!post) {
     return (
@@ -58,6 +170,8 @@ export default function PostDetailScreen() {
       </SafeAreaView>
     );
   }
+
+  const author = getAuthorInfo(post.authorId);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -74,19 +188,19 @@ export default function PostDetailScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.post}>
           <View style={styles.postHeader}>
-            <Image source={{ uri: post.author.avatar }} style={styles.avatar} />
+            <Image source={{ uri: author.avatar }} style={styles.avatar} />
             <View style={styles.authorInfo}>
-              <Text style={styles.authorName}>{post.author.name}</Text>
-              <Text style={styles.authorUniversity}>{post.author.university}</Text>
-              <Text style={styles.authorProgram}>{post.author.program}</Text>
+              <Text style={styles.authorName}>{author.name}</Text>
+              <Text style={styles.authorUniversity}>{author.university}</Text>
+              <Text style={styles.authorProgram}>{author.program}</Text>
             </View>
-            <Text style={styles.timeAgo}>{post.timeAgo}</Text>
+            <Text style={styles.timeAgo}>{formatTime(post.createdAt)}</Text>
           </View>
 
           <Text style={styles.postContent}>{post.content}</Text>
 
           <View style={styles.tags}>
-            {post.tags.map((tag, index) => (
+            {post.tags && post.tags.map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
               </View>
@@ -94,14 +208,14 @@ export default function PostDetailScreen() {
           </View>
 
           <View style={styles.postStats}>
-            <Text style={styles.statsText}>{post.likes} likes</Text>
-            <Text style={styles.statsText}>{post.comments.length} comments</Text>
+            <Text style={styles.statsText}>{post.likes || 0} likes</Text>
+            <Text style={styles.statsText}>{post.commentsCount || 0} comments</Text>
           </View>
 
           <View style={styles.postActions}>
             <TouchableOpacity 
               style={[styles.actionButton, liked && styles.actionButtonActive]}
-              onPress={() => setLiked(!liked)}
+              onPress={handleLike}
             >
               <Heart size={20} color={liked ? '#FF3B30' : '#666'} fill={liked ? '#FF3B30' : 'none'} />
               <Text style={[styles.actionText, liked && styles.actionTextActive]}>Like</Text>
@@ -111,42 +225,64 @@ export default function PostDetailScreen() {
 
         <View style={styles.commentsSection}>
           <Text style={styles.commentsTitle}>Comments</Text>
-          {post.comments.map((comment) => (
-            <View key={comment.id} style={styles.comment}>
-              <Image source={{ uri: comment.author.avatar }} style={styles.commentAvatar} />
-              <View style={styles.commentContent}>
-                <View style={styles.commentHeader}>
-                  <Text style={styles.commentAuthor}>{comment.author.name}</Text>
-                  <Text style={styles.commentUniversity}>{comment.author.university}</Text>
+          {comments.length > 0 ? (
+            comments.map((comment) => {
+              const commentAuthor = getAuthorInfo(comment.authorId);
+              
+              return (
+                <View key={comment.$id} style={styles.comment}>
+                  <Image source={{ uri: commentAuthor.avatar }} style={styles.commentAvatar} />
+                  <View style={styles.commentContent}>
+                    <View style={styles.commentHeader}>
+                      <Text style={styles.commentAuthor}>{commentAuthor.name}</Text>
+                      <Text style={styles.commentUniversity}>{commentAuthor.university}</Text>
+                    </View>
+                    <Text style={styles.commentText}>{comment.content}</Text>
+                    <View style={styles.commentFooter}>
+                      <Text style={styles.commentTime}>{formatTime(comment.createdAt)}</Text>
+                      <TouchableOpacity style={styles.commentLike}>
+                        <Text style={styles.commentLikeText}>{comment.likes || 0} likes</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
-                <Text style={styles.commentText}>{comment.content}</Text>
-                <View style={styles.commentFooter}>
-                  <Text style={styles.commentTime}>{comment.timeAgo}</Text>
-                  <TouchableOpacity style={styles.commentLike}>
-                    <Text style={styles.commentLikeText}>{comment.likes} likes</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          ))}
+              );
+            })
+          ) : (
+            <Text style={styles.noCommentsText}>No comments yet. Be the first to comment!</Text>
+          )}
         </View>
       </ScrollView>
 
       <View style={styles.commentInput}>
-        <Image 
-          source={{ uri: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=100&auto=format&fit=crop' }}
-          style={styles.commentInputAvatar}
-        />
-        <TextInput
-          style={styles.commentInputField}
-          placeholder="Write a comment..."
-          value={newComment}
-          onChangeText={setNewComment}
-          multiline
-        />
-        <TouchableOpacity style={styles.sendButton}>
-          <Send size={20} color="#000" />
-        </TouchableOpacity>
+        {currentUser ? (
+          <>
+            <Image 
+              source={{ uri: userProfiles[currentUser.$id]?.avatarUrl || 'https://via.placeholder.com/100' }}
+              style={styles.commentInputAvatar}
+            />
+            <TextInput
+              style={styles.commentInputField}
+              placeholder="Write a comment..."
+              value={newComment}
+              onChangeText={setNewComment}
+              multiline
+            />
+            <TouchableOpacity 
+              style={styles.sendButton}
+              onPress={handleAddComment}
+            >
+              <Send size={20} color="#000" />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity 
+            style={styles.loginPrompt}
+            onPress={() => router.push('/login')}
+          >
+            <Text style={styles.loginPromptText}>Log in to comment</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -156,6 +292,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
   },
   header: {
     flexDirection: 'row',
@@ -283,6 +429,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     marginBottom: 16,
   },
+  noCommentsText: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginVertical: 20,
+  },
   comment: {
     flexDirection: 'row',
     marginBottom: 16,
@@ -365,5 +519,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loginPrompt: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 20,
+    padding: 12,
+    alignItems: 'center',
+  },
+  loginPromptText: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#666',
   },
 });
