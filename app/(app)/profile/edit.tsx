@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, Camera, MapPin, School, Mail, Phone, Save } from 'lucide-react-native';
@@ -10,6 +10,8 @@ export default function EditProfileScreen() {
   const { userId } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imageOptionsVisible, setImageOptionsVisible] = useState(false);
   const [error, setError] = useState('');
   
   const [formData, setFormData] = useState({
@@ -76,13 +78,12 @@ export default function EditProfileScreen() {
         bio: formData.bio,
         interests: interestsArray,
         avatar: formData.avatar,
-        notifications: formData.notifications,
         profileComplete: true
       };
       
-      // Email cannot be changed directly, so don't include it in the update
-      
-      await authService.updateUserProfile(userId, updatedProfile);
+      // Use updateUserProfileWithAvatar instead of normal updateUserProfile
+      // This ensures proper handling of the avatar image
+      await authService.updateUserProfileWithAvatar(userId, updatedProfile, formData.avatar);
       Alert.alert('Success', 'Profile updated successfully');
       router.back();
     } catch (err) {
@@ -93,8 +94,33 @@ export default function EditProfileScreen() {
     }
   };
 
+  const uploadImageToStorage = async (imageUri) => {
+    try {
+      // Show uploading indicator
+      setUploading(true);
+      
+      // Set the image URI directly in the form data
+      // The actual upload will happen in updateUserProfileWithAvatar when saving
+      setFormData({
+        ...formData,
+        avatar: imageUri
+      });
+      
+      return imageUri;
+    } catch (err) {
+      console.error('Error setting image:', err);
+      Alert.alert('Error', 'Failed to set image. Please try again.');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+  
   const handleSelectImage = async () => {
     try {
+      // Close the image options modal
+      setImageOptionsVisible(false);
+      
       // Request permission to access the image library
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
@@ -114,26 +140,20 @@ export default function EditProfileScreen() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedAsset = result.assets[0];
         
-        // In a real app, you would upload this to your storage service
-        // For now, we'll just update the local state with the URI
-        setFormData({
-          ...formData,
-          avatar: selectedAsset.uri
-        });
-        
-        // Note: In a production app, here you would:
-        // 1. Upload the image to your storage service (e.g., Firebase, AWS S3)
-        // 2. Get the URL from the uploaded image
-        // 3. Update the user profile with the new avatar URL
+        // Set the image URI
+        await uploadImageToStorage(selectedAsset.uri);
       }
     } catch (err) {
       console.error('Error selecting image:', err);
       Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
-
+  
   const handleTakePhoto = async () => {
     try {
+      // Close the image options modal
+      setImageOptionsVisible(false);
+      
       // Request camera permissions
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       
@@ -152,13 +172,8 @@ export default function EditProfileScreen() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const capturedAsset = result.assets[0];
         
-        // Update local state with the camera image URI
-        setFormData({
-          ...formData,
-          avatar: capturedAsset.uri
-        });
-        
-        // Same note as above regarding production implementation
+        // Set the image URI
+        await uploadImageToStorage(capturedAsset.uri);
       }
     } catch (err) {
       console.error('Error taking photo:', err);
@@ -166,16 +181,9 @@ export default function EditProfileScreen() {
     }
   };
 
+  // Show image options modal
   const showImageOptions = () => {
-    Alert.alert(
-      'Change Profile Photo',
-      'Choose an option',
-      [
-        { text: 'Take Photo', onPress: handleTakePhoto },
-        { text: 'Choose from Library', onPress: handleSelectImage },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    setImageOptionsVisible(true);
   };
 
   if (loading) {
@@ -211,10 +219,16 @@ export default function EditProfileScreen() {
         </View>
 
         <View style={styles.avatarSection}>
-          <Image
-            source={{ uri: formData.avatar }}
-            style={styles.avatar}
-          />
+          {uploading ? (
+            <View style={[styles.avatar, styles.avatarLoading]}>
+              <ActivityIndicator size="large" color="#fff" />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: formData.avatar }}
+              style={styles.avatar}
+            />
+          )}
           <TouchableOpacity 
             style={styles.changeAvatarButton}
             onPress={showImageOptions}
@@ -223,6 +237,46 @@ export default function EditProfileScreen() {
             <Text style={styles.changeAvatarText}>Change Photo</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Image options modal */}
+        <Modal
+          visible={imageOptionsVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setImageOptionsVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Update Profile Photo</Text>
+              
+              <TouchableOpacity 
+                style={styles.modalOption}
+                onPress={handleTakePhoto}
+              >
+                <Camera size={24} color="#333" />
+                <Text style={styles.modalOptionText}>Take a Photo</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.modalOption}
+                onPress={handleSelectImage}
+              >
+                <Image 
+                  source={require('@/assets/images/gallery-icon.png')} 
+                  style={styles.modalIcon} 
+                />
+                <Text style={styles.modalOptionText}>Choose from Gallery</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setImageOptionsVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         <View style={styles.form}>
           <View style={styles.section}>
@@ -348,8 +402,6 @@ export default function EditProfileScreen() {
               />
             </View>
           </View>
-
-          
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -389,6 +441,11 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     marginBottom: 16,
+  },
+  avatarLoading: {
+    backgroundColor: '#ccc',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   changeAvatarButton: {
     flexDirection: 'row',
@@ -457,27 +514,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 4,
   },
-  switchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f9f9f9',
-    padding: 16,
-    borderRadius: 12,
-  },
-  switchInfo: {
-    flex: 1,
-  },
-  switchLabel: {
-    fontSize: 16,
-    fontFamily: 'Inter_500Medium',
-    marginBottom: 4,
-  },
-  switchDescription: {
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
-    color: '#666',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -487,5 +523,50 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: '#666',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    gap: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: 'Inter_600SemiBold',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    gap: 16,
+  },
+  modalOptionText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+  },
+  modalIcon: {
+    width: 24,
+    height: 24,
+  },
+  cancelButton: {
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+    color: '#ff3b30',
   },
 });
