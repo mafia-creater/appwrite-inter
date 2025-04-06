@@ -996,7 +996,7 @@ export const resourcesService = new ResourcesService();
 
 export class PostService {
   // Create a new post
-  async createPost(userId, content, tags) {
+  async createPost(userId, content, tags, authorName, authorAvatar, authorUniversity, authorProgram) {
     try {
       const tagsArray = Array.isArray(tags) ? tags : tags.split(',').map(tag => tag.trim());
       
@@ -1011,6 +1011,11 @@ export class PostService {
           likes: 0,
           commentsCount: 0,
           createdAt: new Date().toISOString(),
+          // Store user information with the post
+          authorName: authorName,
+          authorAvatar: authorAvatar,
+          authorUniversity: authorUniversity,
+          authorProgram: authorProgram
         }
       );
       
@@ -1040,6 +1045,7 @@ export class PostService {
     }
   }
 
+  // The rest of your methods stay the same
   // Get a single post by ID
   async getPost(postId) {
     try {

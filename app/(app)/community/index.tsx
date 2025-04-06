@@ -5,6 +5,7 @@ import { Link } from 'expo-router';
 import { Search, MessageCircle, Heart, X, Image as ImageIcon } from 'lucide-react-native';
 import { postService } from '@/services/authService';
 import { authService } from '@/services/authService';
+import { Query } from 'appwrite'; // Make sure this import matches your setup
 import { formatDistanceToNow } from 'date-fns';
 
 export default function CommunityScreen() {
@@ -12,7 +13,7 @@ export default function CommunityScreen() {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
-  const [userProfiles, setUserProfiles] = useState({});
+  const [userProfile, setUserProfile] = useState(null);
   const [newPost, setNewPost] = useState({
     content: '',
     tags: '',
@@ -25,6 +26,22 @@ export default function CommunityScreen() {
       try {
         const user = await authService.getCurrentUser();
         setCurrentUser(user);
+        console.log('Current user:', user);
+        
+        // Load the user's profile
+        try {
+          // This will depend on how you fetch user profiles in your app
+          const profile = await authService.getUserProfile(user.$id);
+          setUserProfile(profile);
+        } catch (profileError) {
+          console.error('Error fetching user profile:', profileError);
+          // Create a default profile if there's an error
+          setUserProfile({
+            fullname: user.name || 'User',
+            avatarUrl: 'https://via.placeholder.com/100'
+          });
+        }
+        
         await loadPosts();
       } catch (error) {
         console.error('Error initializing community screen:', error);
@@ -40,42 +57,13 @@ export default function CommunityScreen() {
       setLoading(true);
       const fetchedPosts = await postService.getPosts();
       setPosts(fetchedPosts);
-      
-      // Load user profiles for all post authors
-      await loadUserProfiles(fetchedPosts);
-      
+      console.log('Posts loaded:', fetchedPosts);
       setLoading(false);
     } catch (error) {
       console.error('Error loading posts:', error);
       setLoading(false);
       Alert.alert('Error', 'Failed to load posts');
     }
-  };
-
-  const loadUserProfiles = async (fetchedPosts) => {
-    const uniqueAuthorIds = [...new Set(fetchedPosts.map(post => post.authorId))];
-    
-    const profiles = {};
-    for (const authorId of uniqueAuthorIds) {
-      try {
-        // Get user profile data
-        const profilesData = await authService.databases.listDocuments(
-          authService.DATABASE_ID,
-          authService.PROFILES_COLLECTION_ID,
-          [
-            Query.equal('userId', authorId)
-          ]
-        );
-        
-        if (profilesData.documents.length > 0) {
-          profiles[authorId] = profilesData.documents[0];
-        }
-      } catch (error) {
-        console.error(`Error loading profile for user ${authorId}:`, error);
-      }
-    }
-    
-    setUserProfiles(profiles);
   };
 
   const handlePost = async () => {
@@ -95,10 +83,15 @@ export default function CommunityScreen() {
         .map(tag => tag.trim())
         .filter(tag => tag.length > 0);
       
+      // Include user information with the post
       await postService.createPost(
         currentUser.$id,
         newPost.content.trim(),
-        tagsArray
+        tagsArray,
+        userProfile?.fullname || currentUser.name || 'Anonymous',
+        userProfile?.avatarUrl || 'https://via.placeholder.com/100',
+        userProfile?.university || 'University not specified',
+        userProfile?.course || 'Program not specified'
       );
       
       // Reset form and close modal
@@ -123,7 +116,6 @@ export default function CommunityScreen() {
       setLoading(true);
       const searchResults = await postService.getPostsByTag(searchTerm.trim());
       setPosts(searchResults);
-      await loadUserProfiles(searchResults);
       setLoading(false);
     } catch (error) {
       console.error('Error searching posts:', error);
@@ -138,16 +130,6 @@ export default function CommunityScreen() {
     } catch (error) {
       return 'some time ago';
     }
-  };
-
-  const getAuthorInfo = (authorId) => {
-    const profile = userProfiles[authorId] || {};
-    return {
-      name: profile.fullname || 'Anonymous User',
-      university: profile.university || 'University not specified',
-      program: profile.course || 'Program not specified',
-      avatar: profile.avatarUrl || 'https://via.placeholder.com/100',
-    };
   };
 
   if (loading && posts.length === 0) {
@@ -184,17 +166,15 @@ export default function CommunityScreen() {
         <View style={styles.posts}>
           {posts.length > 0 ? (
             posts.map((post) => {
-              const author = getAuthorInfo(post.authorId);
-              
               return (
                 <Link key={post.$id} href={`/community/${post.$id}`} asChild>
                   <TouchableOpacity style={styles.post}>
                     <View style={styles.postHeader}>
-                      <Image source={{ uri: author.avatar }} style={styles.avatar} />
+                      <Image source={{ uri: post.authorAvatar || 'https://via.placeholder.com/100' }} style={styles.avatar} />
                       <View style={styles.authorInfo}>
-                        <Text style={styles.authorName}>{author.name}</Text>
-                        <Text style={styles.authorUniversity}>{author.university}</Text>
-                        <Text style={styles.authorProgram}>{author.program}</Text>
+                        <Text style={styles.authorName}>{post.authorName || 'Anonymous User'}</Text>
+                        <Text style={styles.authorUniversity}>{post.authorUniversity || 'University not specified'}</Text>
+                        <Text style={styles.authorProgram}>{post.authorProgram || 'Program not specified'}</Text>
                       </View>
                       <Text style={styles.timeAgo}>{formatTime(post.createdAt)}</Text>
                     </View>
@@ -301,10 +281,8 @@ export default function CommunityScreen() {
   );
 }
 
-// Styles remain the same as in your original code, with these additions:
+// Styles stay the same as your original code
 const styles = StyleSheet.create({
-  // ... your existing styles
-  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
