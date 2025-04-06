@@ -32,6 +32,13 @@ export default function ResourcesLayout() {
             title: 'Resources Residence Permit', // Set the title for the detail screen
         }}
         />
+        <Stack.Screen
+        name="create"
+        options={{ 
+          title: 'Create Resource', // Set the title for the create resource screen
+          headerShown: false // Hide header on the create resource screen
+        }}
+      />
     </Stack>
     );
 }

@@ -24,6 +24,7 @@ const EVENTS_COLLECTION_ID = '67e424f0000ee6d790ad';
 const storageId = '67e8f9ef001984a06104';
 const HOUSING_COLLECTION_ID = '67e427420038f517a001';
 const MESSAGES_COLLECTION_ID = '67ee24d500114f897c22';
+const RESOURCES_COLLECTION_ID = '67f22522003308240bb2';
 
 export class AuthService {
   // Register a new user
@@ -690,3 +691,302 @@ class HousingService {
 
 
 export const housingService = new HousingService();
+
+
+export class ResourcesService {
+  // Fetch all resources
+  async getAllResources(limit = 20, offset = 0) {
+    try {
+      const resources = await databases.listDocuments(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        [
+          Query.limit(limit),
+          Query.offset(offset),
+          Query.orderDesc('createdAt')
+        ]
+      );
+      
+      return resources.documents;
+    } catch (error) {
+      console.error('Error fetching resources:', error);
+      throw error;
+    }
+  }
+
+  // Fetch resources by category
+  async getResourcesByCategory(category, limit = 20, offset = 0) {
+    try {
+      const resources = await databases.listDocuments(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        [
+          Query.equal('category', category),
+          Query.limit(limit),
+          Query.offset(offset),
+          Query.orderDesc('createdAt')
+        ]
+      );
+      
+      return resources.documents;
+    } catch (error) {
+      console.error(`Error fetching resources for category ${category}:`, error);
+      throw error;
+    }
+  }
+
+  // Search resources
+  async searchResources(query, limit = 20, offset = 0) {
+    try {
+      // Assuming you have a text index on title and description fields
+      const resources = await databases.listDocuments(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        [
+          Query.search('title', query),
+          Query.limit(limit),
+          Query.offset(offset)
+        ]
+      );
+      
+      return resources.documents;
+    } catch (error) {
+      console.error(`Error searching resources for '${query}':`, error);
+      throw error;
+    }
+  }
+
+  // Get a specific resource by ID
+  async getResourceById(resourceId) {
+    try {
+      const resource = await databases.getDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId
+      );
+      
+      return resource;
+    } catch (error) {
+      console.error(`Error fetching resource with ID ${resourceId}:`, error);
+      throw error;
+    }
+  }
+
+  // Create a new resource
+  async createResource(resourceData, imageFile = null) {
+    try {
+      // First upload the image if provided
+      let imageUrl = null;
+      
+      if (imageFile && imageFile.uri) {
+        console.log('Image file provided, attempting upload');
+        try {
+          const fileUpload = await this.uploadResourceImage(imageFile);
+          if (fileUpload && fileUpload.$id) {
+            // Generate the view URL
+            imageUrl = storage.getFileView(
+              storageId,
+              fileUpload.$id
+            );
+            console.log('Image uploaded successfully, URL:', imageUrl);
+          }
+        } catch (uploadError) {
+          console.error('Error uploading resource image:', uploadError);
+          // Continue without the image if upload fails
+        }
+      }
+      
+      // Create the resource document
+      console.log('Creating resource document with data:', {
+        ...resourceData,
+        coverImageUrl: imageUrl, // Store the URL directly
+        createdAt: new Date().toISOString()
+      });
+      
+      const resource = await databases.createDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        ID.unique(),
+        {
+          ...resourceData,
+          coverImageUrl: imageUrl, // Changed from coverImage to coverImageUrl
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          likes: 0,
+          comments: 0,
+          bookmarks: 0
+        }
+      );
+      
+      return resource;
+    } catch (error) {
+      console.error('Error creating resource:', error);
+      throw error;
+    }
+  }
+
+  // Update an existing resource
+  async updateResource(resourceId, resourceData, imageFile = null) {
+    try {
+      let imageId = resourceData.coverImage;
+      
+      // Upload new image if provided
+      if (imageFile) {
+        try {
+          const fileUpload = await this.uploadResourceImage(imageFile);
+          if (fileUpload && fileUpload.$id) {
+            imageId = fileUpload.$id;
+          }
+        } catch (uploadError) {
+          console.error('Error uploading resource image during update:', uploadError);
+          // Continue with the existing image if upload fails
+        }
+      }
+      
+      // Update the resource document
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          ...resourceData,
+          coverImage: imageId,
+          updatedAt: new Date().toISOString()
+        }
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error updating resource with ID ${resourceId}:`, error);
+      throw error;
+    }
+  }
+
+  // Delete a resource
+  async deleteResource(resourceId) {
+    try {
+      // Get the resource first to check if it has an image to delete
+      const resource = await this.getResourceById(resourceId);
+      
+      // Delete the associated image if it exists
+      if (resource && resource.coverImage) {
+        try {
+          await storage.deleteFile(storageId, resource.coverImage);
+        } catch (imageError) {
+          console.error('Error deleting resource image:', imageError);
+          // Continue with deletion even if image deletion fails
+        }
+      }
+      
+      // Delete the resource document
+      await databases.deleteDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId
+      );
+      
+      return true;
+    } catch (error) {
+      console.error(`Error deleting resource with ID ${resourceId}:`, error);
+      throw error;
+    }
+  }
+
+  // Upload a resource image
+  async uploadResourceImage(file) {
+    if (!file || !file.uri) {
+      console.error('Invalid file object provided:', file);
+      throw new Error('No valid file provided for upload');
+    }
+    
+    try {
+      console.log('Preparing to upload file:', file.name);
+      
+      // Create a unique ID for the file
+      const fileId = ID.unique();
+      
+      // Upload the file to storage - directly pass the file object
+      const upload = await storage.createFile(
+        storageId,
+        fileId,
+        file
+      );
+      
+      console.log('File uploaded successfully:', upload.$id);
+      return upload;
+    } catch (error) {
+      console.error('Error uploading resource image:', error);
+      console.error('Error details:', JSON.stringify(error));
+      throw error;
+    }
+  }
+
+  // Get the resource image URL from the file ID
+  getResourceImageUrl(fileId) {
+    if (!fileId) return null;
+    
+    return storage.getFileView(storageId, fileId);// Changed from storageId to STORAGE_ID
+  }
+
+  // Like a resource
+  async likeResource(resourceId) {
+    try {
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      const updatedLikes = (resource.likes || 0) + 1;
+      
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          likes: updatedLikes
+        }
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error liking resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+
+  // Bookmark a resource
+  async bookmarkResource(resourceId, userId) {
+    try {
+      // Get the current resource
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      // Update bookmarks count
+      const updatedBookmarks = (resource.bookmarks || 0) + 1;
+      
+      // Update the resource with new bookmark count
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          bookmarks: updatedBookmarks
+        }
+      );
+      
+      // You might also want to create a separate collection to track user bookmarks
+      // This would allow users to view their bookmarked resources
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error bookmarking resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+}
+// Create and export a singleton instance
+export const resourcesService = new ResourcesService();
