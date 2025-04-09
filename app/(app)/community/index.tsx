@@ -5,7 +5,7 @@ import { Link } from 'expo-router';
 import { Search, MessageCircle, Heart, X, Image as ImageIcon } from 'lucide-react-native';
 import { postService } from '@/services/authService';
 import { authService } from '@/services/authService';
-import { Query } from 'appwrite'; // Make sure this import matches your setup
+import { Query } from 'react-native-appwrite'; // Make sure this import matches your setup
 import { formatDistanceToNow } from 'date-fns';
 
 export default function CommunityScreen() {

@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch, Image, Alert, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Camera, MapPin, School, Mail, Phone, Save } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { router } from 'expo-router';
+import { ArrowLeft, MapPin, School, Mail, Phone, Save, Check } from 'lucide-react-native';
 import { authService } from '@/services/authService';
 
+// Predefined avatars from Unsplash
+const avatars = [
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6aa11002bbe78fc39/view?project=67e04a47000d2aa438b3&mode=admin',
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6bbab001a1f3dc346/view?project=67e04a47000d2aa438b3&mode=admin',
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6bbc60004085b3c98/view?project=67e04a47000d2aa438b3&mode=admin',
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6bbce00118d9955c5/view?project=67e04a47000d2aa438b3&mode=admin',
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6bbd6003662a63d9a/view?project=67e04a47000d2aa438b3&mode=admin',
+  'https://cloud.appwrite.io/v1/storage/buckets/67f6a9e4000ec696b0bd/files/67f6bbdd002fa193d7e8/view?project=67e04a47000d2aa438b3&mode=admin',
+];
+
 export default function EditProfileScreen() {
-  const { userId } = useLocalSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [imageOptionsVisible, setImageOptionsVisible] = useState(false);
   const [error, setError] = useState('');
+  const [selectedAvatarUrl, setSelectedAvatarUrl] = useState('');
   
   const [formData, setFormData] = useState({
     fullname: '',
@@ -24,39 +31,42 @@ export default function EditProfileScreen() {
     nationality: '',
     bio: '',
     interests: '',
-    avatar: 'https://via.placeholder.com/120',
   });
 
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setLoading(true);
-        const userProfile = await authService.getUserProfile();
-        
-        if (userProfile) {
-          setFormData({
-            fullname: userProfile.fullname || '',
-            email: userProfile.email || '',
-            phone: userProfile.phone || '',
-            university: userProfile.university || '',
-            program: userProfile.course || '',
-            location: userProfile.location || '',
-            nationality: userProfile.nationality || '',
-            bio: userProfile.bio || '',
-            interests: Array.isArray(userProfile.interests) ? userProfile.interests.join(', ') : '',
-            avatar: userProfile.avatar || 'https://via.placeholder.com/120',
-          });
-        }
-      } catch (err) {
-        console.error('Error loading profile:', err);
-        setError('Failed to load profile data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadProfile();
   }, []);
+
+  const loadProfile = async () => {
+    try {
+      setLoading(true);
+      const userProfile = await authService.getUserProfile();
+
+      if (userProfile) {
+        setFormData({
+          fullname: userProfile.fullname || '',
+          email: userProfile.email || '',
+          phone: userProfile.phone || '',
+          university: userProfile.university || '',
+          program: userProfile.course || '',
+          location: userProfile.location || '',
+          nationality: userProfile.nationality || '',
+          bio: userProfile.bio || '',
+          interests: Array.isArray(userProfile.interests) ? userProfile.interests.join(', ') : '',
+        });
+        
+        // Set the current avatar if available
+        if (userProfile.avatar) {
+          setSelectedAvatarUrl(userProfile.avatar);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading profile:', err);
+      setError('Failed to load profile data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -67,123 +77,30 @@ export default function EditProfileScreen() {
         ? formData.interests.split(',').map(item => item.trim())
         : [];
       
-      // Prepare updated profile data
-      const updatedProfile = {
+      // Prepare profile data
+      const profileData = {
         fullname: formData.fullname,
         phone: formData.phone,
         university: formData.university,
-        course: formData.program, // Match field name in database
+        course: formData.program,
         location: formData.location,
         nationality: formData.nationality,
         bio: formData.bio,
         interests: interestsArray,
-        avatar: formData.avatar,
-        profileComplete: true
+        avatar: selectedAvatarUrl, // Include the selected avatar URL
       };
       
-      // Use updateUserProfileWithAvatar instead of normal updateUserProfile
-      // This ensures proper handling of the avatar image
-      await authService.updateUserProfileWithAvatar(userId, updatedProfile, formData.avatar);
+      // Update profile
+      await authService.updateProfile(profileData);
+      
       Alert.alert('Success', 'Profile updated successfully');
       router.back();
     } catch (err) {
       console.error('Error saving profile:', err);
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
+      Alert.alert('Update Failed', `Could not update profile: ${err.message || 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
-  };
-
-  const uploadImageToStorage = async (imageUri) => {
-    try {
-      // Show uploading indicator
-      setUploading(true);
-      
-      // Set the image URI directly in the form data
-      // The actual upload will happen in updateUserProfileWithAvatar when saving
-      setFormData({
-        ...formData,
-        avatar: imageUri
-      });
-      
-      return imageUri;
-    } catch (err) {
-      console.error('Error setting image:', err);
-      Alert.alert('Error', 'Failed to set image. Please try again.');
-      return null;
-    } finally {
-      setUploading(false);
-    }
-  };
-  
-  const handleSelectImage = async () => {
-    try {
-      // Close the image options modal
-      setImageOptionsVisible(false);
-      
-      // Request permission to access the image library
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'We need access to your media library to update your photo');
-        return;
-      }
-      
-      // Launch the image picker
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const selectedAsset = result.assets[0];
-        
-        // Set the image URI
-        await uploadImageToStorage(selectedAsset.uri);
-      }
-    } catch (err) {
-      console.error('Error selecting image:', err);
-      Alert.alert('Error', 'Failed to select image. Please try again.');
-    }
-  };
-  
-  const handleTakePhoto = async () => {
-    try {
-      // Close the image options modal
-      setImageOptionsVisible(false);
-      
-      // Request camera permissions
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'We need access to your camera to take a photo');
-        return;
-      }
-      
-      // Launch the camera
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const capturedAsset = result.assets[0];
-        
-        // Set the image URI
-        await uploadImageToStorage(capturedAsset.uri);
-      }
-    } catch (err) {
-      console.error('Error taking photo:', err);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
-    }
-  };
-
-  // Show image options modal
-  const showImageOptions = () => {
-    setImageOptionsVisible(true);
   };
 
   if (loading) {
@@ -205,8 +122,8 @@ export default function EditProfileScreen() {
             <ArrowLeft size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>Edit Profile</Text>
-          <TouchableOpacity 
-            onPress={handleSave} 
+          <TouchableOpacity
+            onPress={handleSave}
             style={styles.saveButton}
             disabled={saving}
           >
@@ -218,70 +135,36 @@ export default function EditProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Avatar Selection Grid */}
         <View style={styles.avatarSection}>
-          {uploading ? (
-            <View style={[styles.avatar, styles.avatarLoading]}>
-              <ActivityIndicator size="large" color="#fff" />
-            </View>
-          ) : (
-            <Image
-              source={{ uri: formData.avatar }}
-              style={styles.avatar}
-            />
-          )}
-          <TouchableOpacity 
-            style={styles.changeAvatarButton}
-            onPress={showImageOptions}
-          >
-            <Camera size={20} color="#666" />
-            <Text style={styles.changeAvatarText}>Change Photo</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Choose Avatar</Text>
+          <View style={styles.avatarGrid}>
+            {avatars.map((avatarUrl, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.avatarItem,
+                  selectedAvatarUrl === avatarUrl && styles.selectedAvatarItem,
+                ]}
+                onPress={() => setSelectedAvatarUrl(avatarUrl)}
+              >
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                {selectedAvatarUrl === avatarUrl && (
+                  <View style={styles.checkmarkOverlay}>
+                    <Check size={24} color="#fff" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
-        {/* Image options modal */}
-        <Modal
-          visible={imageOptionsVisible}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setImageOptionsVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Update Profile Photo</Text>
-              
-              <TouchableOpacity 
-                style={styles.modalOption}
-                onPress={handleTakePhoto}
-              >
-                <Camera size={24} color="#333" />
-                <Text style={styles.modalOptionText}>Take a Photo</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.modalOption}
-                onPress={handleSelectImage}
-              >
-                <Image 
-                  source={require('@/assets/images/gallery-icon.png')} 
-                  style={styles.modalIcon} 
-                />
-                <Text style={styles.modalOptionText}>Choose from Gallery</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => setImageOptionsVisible(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-
+        {/* Form fields */}
         <View style={styles.form}>
+          {/* Personal Information section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Personal Information</Text>
-            
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Full Name</Text>
               <TextInput
@@ -327,9 +210,10 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Academic Information section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Academic Information</Text>
-            
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>University</Text>
               <View style={styles.iconInput}>
@@ -357,9 +241,10 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Contact Information section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Contact Information</Text>
-            
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Email</Text>
               <View style={styles.iconInput}>
@@ -389,6 +274,7 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Interests section */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Interests</Text>
             <View style={styles.inputContainer}>
@@ -432,34 +318,42 @@ const styles = StyleSheet.create({
   saveButton: {
     padding: 8,
   },
+  // Avatar grid styles
   avatarSection: {
-    alignItems: 'center',
     marginBottom: 32,
   },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
-  },
-  avatarLoading: {
-    backgroundColor: '#ccc',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  changeAvatarButton: {
+  avatarGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 16,
+  },
+  avatarItem: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  selectedAvatarItem: {
+    borderColor: '#000',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  checkmarkOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 20,
+    justifyContent: 'center',
   },
-  changeAvatarText: {
-    fontSize: 14,
-    fontFamily: 'Inter_500Medium',
-    color: '#666',
-  },
+  // Form styles
   form: {
     gap: 32,
   },
@@ -523,50 +417,5 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: '#666',
-  },
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    gap: 16,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontFamily: 'Inter_600SemiBold',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  modalOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    gap: 16,
-  },
-  modalOptionText: {
-    fontSize: 16,
-    fontFamily: 'Inter_500Medium',
-  },
-  modalIcon: {
-    width: 24,
-    height: 24,
-  },
-  cancelButton: {
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter_500Medium',
-    color: '#ff3b30',
   },
 });

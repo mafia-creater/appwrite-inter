@@ -1,11 +1,11 @@
 import React from 'react';
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, School, Mail, Phone, CreditCard as Edit, LogOut } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { authService } from '@/services/authService';
-import { useAuth } from '@/context/authContext'; // Import the auth context
+import { useAuth } from '@/context/authContext';
 
 type UserProfile = {
   id?: string;
@@ -44,10 +44,78 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 function ProfileScreenContent() {
-  const { signOut, user, profile } = useAuth(); // Use the auth context
-  const [userProfile, setUserProfile] = useState(null);
+  const { signOut, user, profile } = useAuth();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+
+  const fetchProfileData = useCallback(async () => {
+    try {
+      if (profile) {
+        const formattedProfile = {
+          id: profile.userId || profile.$id,
+          email: profile.email || '',
+          fullname: profile.fullname || '',
+          phone: profile.phone || '',
+          university: profile.university || '',
+          course: profile.course || '',
+          nationality: profile.nationality || '',
+          interests: profile.interests || [],
+          avatar: profile.avatar || 'https://via.placeholder.com/80',
+          bio: profile.bio || ''
+        };
+        
+        setUserProfile(formattedProfile);
+        setError('');
+      } else if (user) {
+        console.log('Fetching profile from service...');
+        const fetchedProfile = await authService.getUserProfile();
+        
+        if (fetchedProfile) {
+          const formattedProfile = {
+            id: fetchedProfile.userId || fetchedProfile.$id,
+            email: fetchedProfile.email || '',
+            fullname: fetchedProfile.fullname || '',
+            phone: fetchedProfile.phone || '',
+            university: fetchedProfile.university || '',
+            course: fetchedProfile.course || '',
+            nationality: fetchedProfile.nationality || '',
+            interests: fetchedProfile.interests || [],
+            avatar: fetchedProfile.avatar || 'https://via.placeholder.com/80',
+            bio: fetchedProfile.bio || ''
+          };
+          
+          setUserProfile(formattedProfile);
+          setError('');
+        } else {
+          setError('Profile not found');
+        }
+      } else {
+        router.replace('/(auth)/sign-in');
+      }
+    } catch (err) {
+      console.error('Profile load error:', err);
+      setError('Failed to load profile');
+    }
+  }, [user, profile]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    console.log('Refreshing profile data...');
+    
+    try {
+      await fetchProfileData();
+      // Add a small delay for UX purposes
+      setTimeout(() => {
+        setRefreshing(false);
+        console.log('Refresh complete');
+      }, 1000);
+    } catch (error) {
+      console.error('Refresh error:', error);
+      setRefreshing(false);
+    }
+  }, [fetchProfileData]);
 
   const logout = () => {
     Alert.alert(
@@ -61,9 +129,7 @@ function ProfileScreenContent() {
           onPress: async () => {
             try {
               setLoading(true);
-              // Use the context signOut method instead of direct service call
               await signOut();
-              // Navigation is handled in the context, so no need to call router here
             } catch (err) {
               console.error('Logout error:', err);
               Alert.alert('Logout Failed', 'Could not log out. Please try again.');
@@ -77,62 +143,15 @@ function ProfileScreenContent() {
   };
 
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        // Use profile from context if available
-        if (profile) {
-          const formattedProfile = {
-            id: profile.userId || profile.$id,
-            email: profile.email || '',
-            fullname: profile.fullname || '',
-            phone: profile.phone || '',
-            university: profile.university || '',
-            course: profile.course || '',
-            nationality: profile.nationality || '',
-            interests: profile.interests || [],
-            avatar: profile.avatar || 'https://via.placeholder.com/80',
-            bio: profile.bio || ''
-          };
-          
-          setUserProfile(formattedProfile);
-        } else if (user) {
-          // If we have user but no profile, fetch it
-          const fetchedProfile = await authService.getUserProfile();
-          
-          if (fetchedProfile) {
-            const formattedProfile = {
-              id: fetchedProfile.userId || fetchedProfile.$id,
-              email: fetchedProfile.email || '',
-              fullname: fetchedProfile.fullname || '',
-              phone: fetchedProfile.phone || '',
-              university: fetchedProfile.university || '',
-              course: fetchedProfile.course || '',
-              nationality: fetchedProfile.nationality || '',
-              interests: fetchedProfile.interests || [],
-              avatar: fetchedProfile.avatar || 'https://via.placeholder.com/80',
-              bio: fetchedProfile.bio || ''
-            };
-            
-            setUserProfile(formattedProfile);
-          } else {
-            setError('Profile not found');
-          }
-        } else {
-          // No user, redirect to sign in
-          router.replace('/(auth)/sign-in');
-        }
-      } catch (err) {
-        console.error('Profile load error:', err);
-        setError('Failed to load profile');
-      } finally {
-        setLoading(false);
-      }
+    const loadInitialData = async () => {
+      setLoading(true);
+      await fetchProfileData();
+      setLoading(false);
     };
+    
+    loadInitialData();
+  }, [fetchProfileData]);
 
-    loadProfile();
-  }, [user, profile]);
-
-  
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -144,13 +163,25 @@ function ProfileScreenContent() {
   if (error) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => router.replace('/(auth)/sign-in')}
+        <ScrollView 
+          contentContainerStyle={[styles.content, styles.centerContent]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#0000ff']}
+              tintColor="#0000ff"
+            />
+          }
         >
-          <Text style={styles.retryButtonText}>Sign In</Text>
-        </TouchableOpacity>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={onRefresh}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -158,20 +189,51 @@ function ProfileScreenContent() {
   if (!userProfile) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.errorText}>No profile data available</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => router.replace('/(auth)/user-info')}
+        <ScrollView 
+          contentContainerStyle={[styles.content, styles.centerContent]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#0000ff']}
+              tintColor="#0000ff"
+            />
+          }
         >
-          <Text style={styles.retryButtonText}>Complete Profile</Text>
-        </TouchableOpacity>
+          <Text style={styles.errorText}>No profile data available</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={() => router.replace('/(auth)/user-info')}
+          >
+            <Text style={styles.retryButtonText}>Complete Profile</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <SafeAreaView style={styles.container} testID="profile-screen">
+      <ScrollView 
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#0000ff']}
+            tintColor="#0000ff"
+            progressViewOffset={10} // Adjust this value if using Android and scrollview is under a header
+            title="Refreshing..." // Text that appears while refreshing (iOS only)
+            titleColor="#666" // Color of the refresh text (iOS only)
+            progressBackgroundColor="#fff" // Background color of the refresh indicator
+          />
+        }
+        showsVerticalScrollIndicator={true}
+        scrollEventThrottle={16}
+        testID="profile-scroll-view"
+        overScrollMode="always" // For Android
+        alwaysBounceVertical={true} // For iOS
+      >
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.title}>Profile</Text>
@@ -286,13 +348,16 @@ function ProfileScreenContent() {
         )}
 
         <TouchableOpacity 
-                style={styles.logoutButton} 
-                onPress={logout}
-                testID="logout-button"
-              >
-                <LogOut size={20} color="#FF3B30" />
-                <Text style={styles.logoutText}>Log Out</Text>
-              </TouchableOpacity>
+          style={styles.logoutButton} 
+          onPress={logout}
+          testID="logout-button"
+        >
+          <LogOut size={20} color="#FF3B30" />
+          <Text style={styles.logoutText}>Log Out</Text>
+        </TouchableOpacity>
+        
+        {/* Extra space at bottom to ensure everything is scrollable */}
+        <View style={styles.bottomPadding} />
       </ScrollView>
     </SafeAreaView>
   );

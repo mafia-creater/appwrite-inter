@@ -1,5 +1,6 @@
 import { ID, Query } from 'react-native-appwrite';
 import { Client, Account, Databases, Storage } from 'react-native-appwrite';
+import {Platform} from 'react-native';
 
  // Ensure you have this package installed
 
@@ -10,7 +11,11 @@ client.setEndpoint('https://cloud.appwrite.io/v1');
 client.setProject('67e04a47000d2aa438b3');
 
 // Set platform identifier based on your app
-client.setPlatform("com.intermover.app");
+if(Platform.OS === "ios"){
+  client.setPlatform("com.intermover.ios");
+}else if(Platform.OS === "android"){
+  client.setPlatform("com.intermover.app");
+}
 
 // Initialize services directly
 const account = new Account(client);
@@ -30,6 +35,59 @@ const COMMENTS_COLLECTION_ID = '67f28e49003d6740aa39';
 
 
 export class AuthService {
+  constructor() {
+    if (!client || !storage || !databases || !account) {
+      console.error("Appwrite services not initialized properly");
+      throw new Error("Appwrite services not initialized properly");
+    }
+    
+    this.storageId = storageId;
+  }
+
+  // Simplified method to update user profile with optional image
+  async updateProfile(profileData) {
+    try {
+      // Get current user
+      const currentUser = await this.getCurrentUser();
+      if (!currentUser) {
+        throw new Error('User not authenticated');
+      }
+  
+      // Find user profile by userId
+      const profiles = await databases.listDocuments(
+        DATABASE_ID,
+        PROFILES_COLLECTION_ID,
+        [Query.equal('userId', currentUser.$id)]
+      );
+  
+      if (profiles.documents.length === 0) {
+        throw new Error('Profile not found');
+      }
+  
+      const profileId = profiles.documents[0].$id;
+  
+      // Prepare profile data with avatar URL if provided
+      const updatedData = {
+        ...profileData,
+        profileComplete: true,
+        updatedAt: new Date().toISOString()
+      };
+  
+      // Update the profile document
+      const updatedProfile = await databases.updateDocument(
+        DATABASE_ID,
+        PROFILES_COLLECTION_ID,
+        profileId,
+        updatedData
+      );
+  
+      return updatedProfile;
+    } catch (error) {
+      console.error('Profile update failed:', error);
+      throw error;
+    }
+  }
+
   // Register a new user
   async createAccount(email, password, fullname) {
     try {
@@ -94,61 +152,6 @@ export class AuthService {
     }
   }
 
-  // Update user profile with additional information
-  async updateUserProfile(userId, profileData) {
-    try {
-      // First find the profile document by userId
-      const profiles = await databases.listDocuments(
-        DATABASE_ID, 
-        PROFILES_COLLECTION_ID,
-        [
-          Query.equal('userId', userId)
-        ]
-      );
-      
-      // If profile exists, update it
-      if (profiles.documents.length > 0) {
-        const profileId = profiles.documents[0].$id;
-        
-        // Filter out any system properties that might have been fetched
-        const cleanedData = { ...profileData };
-        
-        // Remove any system properties (those starting with $)
-        Object.keys(cleanedData).forEach(key => {
-          if (key.startsWith('$')) {
-            delete cleanedData[key];
-          }
-        });
-        
-        // Also remove specific system fields we know might cause issues
-        const fieldsToRemove = ['$id', '$databaseId', '$collectionId', '$createdAt', '$updatedAt', '$permissions'];
-        fieldsToRemove.forEach(field => {
-          if (field in cleanedData) {
-            delete cleanedData[field];
-          }
-        });
-        
-        const updatedProfile = await databases.updateDocument(
-          DATABASE_ID,
-          PROFILES_COLLECTION_ID,
-          profileId,
-          {
-            ...cleanedData,
-            profileComplete: true,
-            updatedAt: new Date().toISOString()
-          }
-        );
-        
-        return updatedProfile;
-      } else {
-        throw new Error('Profile not found');
-      }
-    } catch (error) {
-      console.error('Error updating user profile:', error);
-      throw error;
-    }
-  }
-
   // Login user
   async login(email, password) {
     try {
@@ -185,7 +188,7 @@ export class AuthService {
 
   // Get user profile
   async getUserProfile() {
-    try {
+    try { 
       const user = await this.getCurrentUser();
       
       if (!user) return null;
@@ -204,103 +207,6 @@ export class AuthService {
     } catch (error) {
       console.error('Error getting user profile:', error);
       return null;
-    }
-  }
-
-  // Upload a file to storage
-  async uploadFile(fileBlob, fileName) {
-    try {
-      const result = await storage.createFile(
-        storageId,
-        ID.unique(),
-        fileBlob,
-        {
-          name: fileName,
-          permissions: [`user:${(await this.getCurrentUser()).$id}`], // Only the user can read this file
-        }
-      );
-      return result;
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      throw error;
-    }
-  }
-  
-  // Delete a file from storage
-  async deleteFile(fileId) {
-    try {
-      await storage.deleteFile(STORAGE_ID, fileId);
-      return true;
-    } catch (error) {
-      console.error('Error deleting file:', error);
-      // Don't throw here - just log the error and continue
-      // Sometimes the file might not exist anymore
-      return false;
-    }
-  }
-  
-  // Get a file preview URL
-  getFilePreview(fileId, width = 400, height = 400) {
-    return storage.getFilePreview(
-      storageId,
-      fileId,
-      width,
-      height
-    );
-  }
-  
-  // Enhanced method to update user profile with avatar
-  async updateUserProfileWithAvatar(userId, profileData, imageUri) {
-    try {
-      // Check if this is a new image that needs to be uploaded
-      // Local image URIs typically start with 'file:' or 'content:'
-      const isLocalImage = imageUri && 
-        (imageUri.startsWith('file:') || 
-         imageUri.startsWith('content:') || 
-         imageUri.startsWith('ph:'));
-      
-      // If there's a new local image to upload
-      if (isLocalImage) {
-        console.log('New local image detected, uploading to storage...');
-        
-        // Find the current profile to check for existing avatar
-        const currentProfile = await this.getUserProfileById(userId);
-        
-        // If they have an existing avatar file ID, delete it to save storage
-        if (currentProfile && currentProfile.avatarFileId) {
-          try {
-            console.log('Deleting previous avatar file:', currentProfile.avatarFileId);
-            await this.deleteFile(currentProfile.avatarFileId);
-          } catch (e) {
-            console.log('Error deleting previous avatar:', e);
-            // Continue even if deletion fails
-          }
-        }
-        
-        // Upload the new image
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        const fileName = `avatar_${userId}_${new Date().getTime()}.jpg`;
-        
-        console.log('Uploading new avatar file:', fileName);
-        const fileUpload = await this.uploadFile(blob, fileName);
-        
-        // Get the URL and file ID
-        const fileUrl = this.getFilePreview(fileUpload.$id);
-        
-        console.log('New avatar uploaded successfully, fileId:', fileUpload.$id);
-        
-        // Add avatar URL and file ID to profile data
-        profileData.avatar = fileUrl;
-        profileData.avatarFileId = fileUpload.$id; // Store file ID for future reference
-      }
-      
-      // Update the profile with all data including the new avatar if uploaded
-      console.log('Updating user profile with data:', { ...profileData, avatar: 'URL hidden for brevity' });
-      return await this.updateUserProfile(userId, profileData);
-    } catch (error) {
-      console.error('Error updating profile with avatar:', error);
-      throw error;
     }
   }
   
@@ -322,6 +228,48 @@ export class AuthService {
       console.error('Error getting user profile by ID:', error);
       return null;
     }
+  }
+
+  // Helper to get file preview URL
+  getFilePreview(fileId) {
+    if (!fileId) return null;
+    return storage.getFileView(this.storageId, fileId);
+  }
+
+  // Delete a file from storage
+  async deleteFile(fileId) {
+    try {
+      if (!fileId) {
+        console.log('No file ID provided for deletion');
+        return true;
+      }
+      
+      // Check if file exists before attempting to delete
+      try {
+        await storage.getFile(this.storageId, fileId);
+        await storage.deleteFile(this.storageId, fileId);
+        console.log(`File ${fileId} deleted successfully`);
+        return true;
+      } catch (error) {
+        console.log(`File ${fileId} not found or already deleted`);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error in deleteFile:', error);
+      return false;
+    }
+  }
+
+  // For backward compatibility - use updateProfile instead
+  async updateUserProfileWithImage(userId, profileData, imageUri) {
+    console.log('Using deprecated updateUserProfileWithImage method, consider using updateProfile instead');
+    return this.updateProfile(profileData, imageUri);
+  }
+
+  // For backward compatibility - use updateProfile instead
+  async updateUserProfile(userId, profileData) {
+    console.log('Using deprecated updateUserProfile method, consider using updateProfile instead');
+    return this.updateProfile(profileData);
   }
 }
 
