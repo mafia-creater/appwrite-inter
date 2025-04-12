@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Image, 
-  useWindowDimensions, 
-  ActivityIndicator, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  useWindowDimensions,
+  ActivityIndicator,
   Alert,
   StatusBar,
   Share,
@@ -15,14 +15,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useNavigation } from 'expo-router';
-import { 
-  ArrowLeft, 
-  Clock, 
-  Calendar, 
-  ThumbsUp, 
-  MessageCircle, 
-  Bookmark, 
-  Share2, 
+import {
+  ArrowLeft,
+  Clock,
+  Calendar,
+  ThumbsUp,
+  MessageCircle,
+  Bookmark,
+  Share2,
   ChevronRight,
   AlertCircle
 } from 'lucide-react-native';
@@ -35,7 +35,7 @@ export default function ResourceDetailScreen() {
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const { user } = useAuth();
-  
+
   const [resource, setResource] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,22 +45,30 @@ export default function ResourceDetailScreen() {
     hasBookmarked: false
   });
   const [imageError, setImageError] = useState(false);
-  
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   // Animation for like button
   const likeScale = useRef(new Animated.Value(1)).current;
   const bookmarkScale = useRef(new Animated.Value(1)).current;
-  
+
   // Keep track of component mount state to prevent memory leaks
   const isMounted = useRef(true);
+  
+  // Handle unmounting correctly
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   // Handle image URL generation with proper error handling
   const getCoverImageUrl = useCallback(() => {
     if (!resource) return null;
-    
+
     try {
       // If it's already a complete URL
-      if (resource.coverImageUrl && typeof resource.coverImageUrl === 'string' && 
-          resource.coverImageUrl.startsWith('http')) {
+      if (resource.coverImageUrl && typeof resource.coverImageUrl === 'string' &&
+        resource.coverImageUrl.startsWith('http')) {
         return resource.coverImageUrl;
       }
       // If it's a file ID
@@ -70,7 +78,7 @@ export default function ResourceDetailScreen() {
     } catch (err) {
       console.error('Error generating image URL:', err);
     }
-    
+
     // Fallback image
     return 'https://images.unsplash.com/photo-1592496001020-d31bd830651f?q=80&w=800&auto=format&fit=crop';
   }, [resource]);
@@ -78,19 +86,35 @@ export default function ResourceDetailScreen() {
   // Format date string with error handling
   const formatDate = useCallback((dateString) => {
     if (!dateString) return 'Recently updated';
-    
+
     try {
       const date = new Date(dateString);
       if (isNaN(date.getTime())) return 'Recently updated'; // Invalid date check
-      
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
+
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
       });
     } catch (e) {
       return 'Recently updated';
     }
+  }, []);
+
+  // Animation function for scaling effect with configurable duration
+  const animateScale = useCallback((scaleValue, duration = 150) => {
+    Animated.sequence([
+      Animated.timing(scaleValue, {
+        toValue: 1.2,
+        duration: duration,
+        useNativeDriver: true
+      }),
+      Animated.timing(scaleValue, {
+        toValue: 1,
+        duration: duration,
+        useNativeDriver: true
+      })
+    ]).start();
   }, []);
 
   const fetchResourceData = useCallback(async () => {
@@ -99,219 +123,271 @@ export default function ResourceDetailScreen() {
       setLoading(false);
       return;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
-      
+
       // Fetch the requested resource
       const resourceData = await resourcesService.getResourceById(id);
-      
+
       if (!isMounted.current) return;
-      
+
       if (!resourceData) {
         setError('Resource not found');
         setLoading(false);
         return;
       }
-      
+
       setResource(resourceData);
       setImageError(false);
+
+      // Fetch related resources and user actions in parallel
+      const fetchPromises = [];
       
-      // Fetch related resources from the same category
+      // Promise for related resources
       if (resourceData.category) {
-        try {
-          const related = await resourcesService.getResourcesByCategory(
-            resourceData.category, 
-            3, // Increased to 3 to ensure we have alternatives if current resource is filtered out
-            0
-          );
-          
-          if (!isMounted.current) return;
-          
-          // Filter out the current resource
-          setRelatedResources(related.filter(item => item.$id !== id).slice(0, 2));
-        } catch (relatedErr) {
+        const relatedPromise = resourcesService.getResourcesByCategory(
+          resourceData.category,
+          4 // Increased to ensure we have enough after filtering
+        ).then(related => {
+          if (isMounted.current) {
+            // Filter out the current resource
+            setRelatedResources(related.filter(item => item.$id !== id).slice(0, 2));
+          }
+        }).catch(relatedErr => {
           console.error('Error fetching related resources:', relatedErr);
           // Don't set main error, just log it since related resources are not critical
-        }
+          if (isMounted.current) {
+            setRelatedResources([]);
+          }
+        });
+        
+        fetchPromises.push(relatedPromise);
       }
-      
-      // Check if current user has liked or bookmarked this resource
+
+      // Promises for user interactions if logged in
       if (user) {
-        try {
-          // These would be actual API calls in a real implementation
-          // const likeStatus = await resourcesService.checkUserLikeStatus(id, user.$id);
-          // const bookmarkStatus = await resourcesService.checkUserBookmarkStatus(id, user.$id);
-          
-          if (!isMounted.current) return;
-          
-          setUserActions({
-            hasLiked: false, // Replace with actual API response
-            hasBookmarked: false // Replace with actual API response
-          });
-        } catch (userActionErr) {
+        const userActionsPromise = Promise.all([
+          resourcesService.checkUserLikeStatus(id, user.$id),
+          resourcesService.checkUserBookmarkStatus(id, user.$id)
+        ]).then(([likeStatus, bookmarkStatus]) => {
+          if (isMounted.current) {
+            setUserActions({
+              hasLiked: likeStatus,
+              hasBookmarked: bookmarkStatus
+            });
+          }
+        }).catch(userActionErr => {
           console.error('Error fetching user action status:', userActionErr);
           // Don't set main error for this non-critical feature
-        }
+        });
+        
+        fetchPromises.push(userActionsPromise);
       }
       
+      // Wait for all parallel requests to complete
+      await Promise.all(fetchPromises);
+
     } catch (err) {
       console.error('Error fetching resource:', err);
-      
+
       if (!isMounted.current) return;
-      
+
       setError(err.message || 'Failed to load resource. Please try again later.');
     } finally {
       if (isMounted.current) {
         setLoading(false);
+        setIsRefreshing(false);
       }
     }
   }, [id, user]);
 
-  // Set up effect for data fetching
+  // Effect to fetch data on mount or when id changes
   useEffect(() => {
-    isMounted.current = true;
     fetchResourceData();
-    
-    return () => {
-      isMounted.current = false;
-    };
-  }, [id, fetchResourceData]);
+  }, [fetchResourceData, id]);
 
-  // Animation helpers
-  const animateScale = useCallback((animatedValue) => {
-    Animated.sequence([
-      Animated.timing(animatedValue, {
-        toValue: 1.2,
-        duration: 150,
-        useNativeDriver: true
-      }),
-      Animated.timing(animatedValue, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true
-      })
-    ]).start();
-  }, []);
-
+  // Update handleLike to toggle like status
   const handleLike = useCallback(async () => {
     if (!user) {
       // Redirect to login if not logged in
       router.push('/auth/login?returnTo=' + encodeURIComponent(`/resources/${id}`));
       return;
     }
-    
-    if (userActions.hasLiked) {
-      // User already liked this resource
-      return;
-    }
-    
+
     try {
-      // Optimistic update
-      animateScale(likeScale);
-      setUserActions(prev => ({
-        ...prev,
-        hasLiked: true
-      }));
+      // Prevent multiple rapid clicks
+      if (userActions.likePending) return;
       
-      setResource(prev => ({
-        ...prev,
-        likes: (prev.likes || 0) + 1
-      }));
+      // Set pending state
+      setUserActions(prev => ({ ...prev, likePending: true }));
       
-      // Perform the actual API call
-      await resourcesService.likeResource(id);
+      // Toggle the like state
+      if (userActions.hasLiked) {
+        // Already liked, so unlike
+        animateScale(likeScale);
+
+        // Optimistic UI update
+        setUserActions(prev => ({
+          ...prev,
+          hasLiked: false,
+          likePending: false // Reset pending state
+        }));
+
+        setResource(prev => ({
+          ...prev,
+          likes: Math.max((prev?.likes || 0) - 1, 0)
+        }));
+
+        // Perform the actual API call
+        await resourcesService.unlikeResource(id, user.$id);
+      } else {
+        // Not liked yet, so like
+        animateScale(likeScale);
+
+        // Optimistic UI update
+        setUserActions(prev => ({
+          ...prev,
+          hasLiked: true,
+          likePending: false // Reset pending state
+        }));
+
+        setResource(prev => ({
+          ...prev,
+          likes: (prev?.likes || 0) + 1
+        }));
+
+        // Perform the actual API call
+        await resourcesService.likeResource(id, user.$id);
+      }
     } catch (err) {
-      console.error('Error liking resource:', err);
-      
+      console.error('Error toggling like status:', err);
+
       // Revert the optimistic update if failed
       setUserActions(prev => ({
         ...prev,
-        hasLiked: false
+        hasLiked: !userActions.hasLiked,
+        likePending: false // Reset pending state
       }));
-      
-      setResource(prev => ({
-        ...prev,
-        likes: Math.max((prev.likes || 0) - 1, 0)
-      }));
-      
-      Alert.alert('Error', 'Unable to like this resource. Please try again.');
-    }
-  }, [id, user, userActions.hasLiked, animateScale, likeScale]);
 
+      setResource(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          likes: userActions.hasLiked
+            ? (prev.likes || 0) + 1
+            : Math.max((prev.likes || 0) - 1, 0)
+        };
+      });
+
+      Alert.alert('Error', 'Unable to update like status. Please try again.');
+    }
+  }, [id, user, userActions.hasLiked, userActions.likePending, animateScale, likeScale]);
+
+  // Update handleBookmark to toggle bookmark status
   const handleBookmark = useCallback(async () => {
     if (!user) {
       // Redirect to login if not logged in
       router.push('/auth/login?returnTo=' + encodeURIComponent(`/resources/${id}`));
       return;
     }
-    
-    if (userActions.hasBookmarked) {
-      // User already bookmarked this resource
-      return;
-    }
-    
+
     try {
-      // Optimistic update
-      animateScale(bookmarkScale);
-      setUserActions(prev => ({
-        ...prev,
-        hasBookmarked: true
-      }));
+      // Prevent multiple rapid clicks
+      if (userActions.bookmarkPending) return;
       
-      setResource(prev => ({
-        ...prev,
-        bookmarks: (prev.bookmarks || 0) + 1
-      }));
+      // Set pending state
+      setUserActions(prev => ({ ...prev, bookmarkPending: true }));
       
-      // Perform the actual API call
-      await resourcesService.bookmarkResource(id, user.$id);
+      // Toggle the bookmark state
+      if (userActions.hasBookmarked) {
+        // Already bookmarked, so remove bookmark
+        animateScale(bookmarkScale);
+
+        // Optimistic UI update
+        setUserActions(prev => ({
+          ...prev,
+          hasBookmarked: false,
+          bookmarkPending: false // Reset pending state
+        }));
+
+        setResource(prev => ({
+          ...prev,
+          bookmarks: Math.max((prev?.bookmarks || 0) - 1, 0)
+        }));
+
+        // Perform the actual API call
+        await resourcesService.removeBookmark(id, user.$id);
+      } else {
+        // Not bookmarked yet, so add bookmark
+        animateScale(bookmarkScale);
+
+        // Optimistic UI update
+        setUserActions(prev => ({
+          ...prev,
+          hasBookmarked: true,
+          bookmarkPending: false // Reset pending state
+        }));
+
+        setResource(prev => ({
+          ...prev,
+          bookmarks: (prev?.bookmarks || 0) + 1
+        }));
+
+        // Perform the actual API call
+        await resourcesService.bookmarkResource(id, user.$id);
+      }
     } catch (err) {
-      console.error('Error bookmarking resource:', err);
-      
+      console.error('Error toggling bookmark status:', err);
+
       // Revert the optimistic update if failed
       setUserActions(prev => ({
         ...prev,
-        hasBookmarked: false
+        hasBookmarked: !userActions.hasBookmarked,
+        bookmarkPending: false // Reset pending state
       }));
-      
-      setResource(prev => ({
-        ...prev,
-        bookmarks: Math.max((prev.bookmarks || 0) - 1, 0)
-      }));
-      
-      Alert.alert('Error', 'Unable to bookmark this resource. Please try again.');
+
+      setResource(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          bookmarks: userActions.hasBookmarked
+            ? (prev.bookmarks || 0) + 1
+            : Math.max((prev.bookmarks || 0) - 1, 0)
+        };
+      });
+
+      Alert.alert('Error', 'Unable to update bookmark status. Please try again.');
     }
-  }, [id, user, userActions.hasBookmarked, animateScale, bookmarkScale]);
+  }, [id, user, userActions.hasBookmarked, userActions.bookmarkPending, animateScale, bookmarkScale]);
 
   const handleShare = useCallback(async () => {
     if (!resource) return;
-    
+
     try {
-      const result = await Share.share({
+      const shareContent = {
         title: resource.title,
-        message: `Check out this resource: ${resource.title}\n\n${resource.description || ''}`,
-        // url: In a real app, you would include a deep link URL
-      });
+        message: `Check out this resource: ${resource.title}\n\n${resource.description || ''}`
+      };
       
+      // Add deep link URL if available in a real app
+      // if (Platform.OS === 'ios' || Platform.OS === 'android') {
+      //   shareContent.url = `yourapp://resources/${id}`;
+      // }
+      
+      const result = await Share.share(shareContent);
+
       if (result.action === Share.sharedAction) {
-        if (result.activityType) {
-          // Shared with activity type of result.activityType
-          console.log('Shared with:', result.activityType);
-        } else {
-          // Shared
-          console.log('Shared successfully');
-        }
-      } else if (result.action === Share.dismissedAction) {
-        // Dismissed
-        console.log('Share dismissed');
+        console.log(result.activityType ? 
+          `Shared with: ${result.activityType}` : 
+          'Shared successfully');
       }
     } catch (error) {
       console.error('Error sharing resource:', error);
       Alert.alert('Error', 'Unable to share this resource. Please try again.');
     }
-  }, [resource]);
+  }, [resource, id]);
 
   const handleCommentPress = useCallback(() => {
     // Navigate to comments screen
@@ -325,13 +401,25 @@ export default function ResourceDetailScreen() {
   }, []);
 
   const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
     fetchResourceData();
   }, [fetchResourceData]);
+  
+  const navigateToRelatedResource = useCallback((relatedId) => {
+    // Clear current state before navigating to avoid stale data
+    setResource(null);
+    setLoading(true);
+    setError(null);
+    setRelatedResources([]);
+    
+    // Use router.replace instead of push to avoid stacking screens
+    router.replace(`/resources/${relatedId}`);
+  }, []);
 
   // Loading state
-  if (loading) {
+  if (loading && !isRefreshing) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" />
         <ActivityIndicator size="large" color="#3366FF" />
         <Text style={styles.loadingText}>Loading resource...</Text>
@@ -342,20 +430,20 @@ export default function ResourceDetailScreen() {
   // Error state
   if (error || !resource) {
     return (
-      <SafeAreaView style={styles.errorContainer}>
+      <SafeAreaView style={styles.errorContainer} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" />
         <AlertCircle size={48} color="#ff3b30" />
         <Text style={styles.errorText}>{error || 'Resource not found'}</Text>
-        <TouchableOpacity 
-          style={styles.errorButton} 
+        <TouchableOpacity
+          style={styles.errorButton}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
           <Text style={styles.errorButtonText}>Go Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.retryButton} 
+        <TouchableOpacity
+          style={styles.retryButton}
           onPress={handleRefresh}
           accessibilityRole="button"
           accessibilityLabel="Try again"
@@ -369,36 +457,46 @@ export default function ResourceDetailScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView 
-        contentContainerStyle={styles.content} 
+      <ScrollView
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         accessibilityRole="scrollView"
       >
+        {isRefreshing && (
+          <View style={styles.refreshIndicator}>
+            <ActivityIndicator size="small" color="#3366FF" />
+          </View>
+        )}
+        
         <View style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => router.back()} 
+          <TouchableOpacity
+            onPress={() => router.back()}
             style={styles.backButton}
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
           >
             <ArrowLeft size={24} color="#000" />
           </TouchableOpacity>
           <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={[styles.actionButton, userActions.hasBookmarked && styles.activeActionButton]} 
+            <TouchableOpacity
+              style={[styles.actionButton, userActions.hasBookmarked && styles.activeActionButton]}
               onPress={handleBookmark}
               accessibilityRole="button"
               accessibilityLabel={userActions.hasBookmarked ? "Bookmarked" : "Bookmark this resource"}
+              disabled={userActions.bookmarkPending}
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
             >
               <Animated.View style={{ transform: [{ scale: bookmarkScale }] }}>
                 <Bookmark size={24} color={userActions.hasBookmarked ? "#3366FF" : "#000"} />
               </Animated.View>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.actionButton} 
+            <TouchableOpacity
+              style={styles.actionButton}
               onPress={handleShare}
               accessibilityRole="button"
               accessibilityLabel="Share this resource"
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
             >
               <Share2 size={24} color="#000" />
             </TouchableOpacity>
@@ -406,43 +504,49 @@ export default function ResourceDetailScreen() {
         </View>
 
         {!imageError && (
-          <Image 
-            source={{ uri: getCoverImageUrl() }} 
-            style={[styles.coverImage, { width }]} 
+          <Image
+            source={{ uri: getCoverImageUrl() }}
+            style={[styles.coverImage, { width }]}
             resizeMode="cover"
             accessibilityLabel={`Cover image for ${resource.title}`}
             onError={handleImageError}
+            fadeDuration={300}
           />
         )}
 
         <View style={styles.articleContent}>
           <View style={styles.breadcrumbs}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => router.push('/resources')}
               accessibilityRole="button"
               accessibilityLabel="Go to all resources"
+              hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
             >
               <Text style={styles.breadcrumbText}>Resources</Text>
             </TouchableOpacity>
             <ChevronRight size={16} color="#666" />
-            <TouchableOpacity 
-              onPress={() => router.push(`/resources?category=${resource.category}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`Go to ${resource.category || 'Uncategorized'} category`}
-            >
-              <Text style={styles.breadcrumbText}>{resource.category || 'Uncategorized'}</Text>
-            </TouchableOpacity>
+            {resource.category && (
+              <TouchableOpacity
+                onPress={() => router.push(`/resources?category=${encodeURIComponent(resource.category)}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`Go to ${resource.category || 'Uncategorized'} category`}
+                hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}
+              >
+                <Text style={styles.breadcrumbText}>{resource.category || 'Uncategorized'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <Text style={styles.title} accessibilityRole="header">{resource.title}</Text>
 
           <View style={styles.authorRow}>
             {resource.author?.avatar && (
-              <Image 
-                source={{ uri: resource.author.avatar }} 
-                style={styles.authorAvatar} 
+              <Image
+                source={{ uri: resource.author.avatar }}
+                style={styles.authorAvatar}
                 accessibilityLabel={`Avatar for ${resource.author?.name || 'Anonymous'}`}
                 onError={() => {}} // Silent fail for author avatar
+                defaultSource={require('@/assets/images/default-avatar.png')} // Assuming you have a default avatar
               />
             )}
             <View style={styles.authorInfo}>
@@ -497,29 +601,26 @@ export default function ResourceDetailScreen() {
                   <TouchableOpacity
                     key={related.$id}
                     style={styles.relatedArticle}
-                    onPress={() => {
-                      // Clear current state before navigating to avoid stale data
-                      setResource(null);
-                      setLoading(true);
-                      router.push(`/resources/${related.$id}`);
-                    }}
+                    onPress={() => navigateToRelatedResource(related.$id)}
                     accessibilityRole="button"
                     accessibilityLabel={`Read related resource: ${related.title}`}
                   >
-                    <Image 
-                      source={{ 
-                        uri: related.coverImage 
-                          ? resourcesService.getResourceImageUrl(related.coverImage) 
+                    <Image
+                      source={{
+                        uri: related.coverImage
+                          ? resourcesService.getResourceImageUrl(related.coverImage)
                           : related.coverImageUrl || 'https://images.unsplash.com/photo-1592496001020-d31bd830651f?q=80&w=800&auto=format&fit=crop'
-                      }} 
+                      }}
                       style={styles.relatedImage}
                       accessibilityLabel={`Cover image for ${related.title}`}
                       onError={() => {}} // Silent fail
                     />
                     <View style={styles.relatedContent}>
-                      <View style={styles.relatedCategory}>
-                        <Text style={styles.relatedCategoryText}>{related.category || 'Uncategorized'}</Text>
-                      </View>
+                      {related.category && (
+                        <View style={styles.relatedCategory}>
+                          <Text style={styles.relatedCategoryText}>{related.category}</Text>
+                        </View>
+                      )}
                       <Text style={styles.relatedArticleTitle} numberOfLines={2}>{related.title}</Text>
                       <Text style={styles.readMore}>Read More</Text>
                     </View>
@@ -532,11 +633,12 @@ export default function ResourceDetailScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity 
-          style={[styles.footerButton, userActions.hasLiked && styles.activeFooterButton]} 
+        <TouchableOpacity
+          style={[styles.footerButton, userActions.hasLiked && styles.activeFooterButton]}
           onPress={handleLike}
           accessibilityRole="button"
           accessibilityLabel={userActions.hasLiked ? "Liked" : "Like this resource"}
+          disabled={userActions.likePending}
         >
           <Animated.View style={{ transform: [{ scale: likeScale }] }}>
             <ThumbsUp size={20} color={userActions.hasLiked ? "#3366FF" : "#666"} />
@@ -545,8 +647,8 @@ export default function ResourceDetailScreen() {
             {userActions.hasLiked ? "Liked" : "Like"}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.footerButton} 
+        <TouchableOpacity
+          style={styles.footerButton}
           onPress={handleCommentPress}
           accessibilityRole="button"
           accessibilityLabel="View or add comments"
@@ -554,11 +656,12 @@ export default function ResourceDetailScreen() {
           <MessageCircle size={20} color="#666" />
           <Text style={styles.footerButtonText}>Comment</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.footerButton, userActions.hasBookmarked && styles.activeFooterButton]} 
+        <TouchableOpacity
+          style={[styles.footerButton, userActions.hasBookmarked && styles.activeFooterButton]}
           onPress={handleBookmark}
           accessibilityRole="button"
           accessibilityLabel={userActions.hasBookmarked ? "Saved" : "Save this resource"}
+          disabled={userActions.bookmarkPending}
         >
           <Animated.View style={{ transform: [{ scale: bookmarkScale }] }}>
             <Bookmark size={20} color={userActions.hasBookmarked ? "#3366FF" : "#666"} />
@@ -567,8 +670,8 @@ export default function ResourceDetailScreen() {
             {userActions.hasBookmarked ? "Saved" : "Save"}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.footerButton} 
+        <TouchableOpacity
+          style={styles.footerButton}
           onPress={handleShare}
           accessibilityRole="button"
           accessibilityLabel="Share this resource"

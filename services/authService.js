@@ -1098,6 +1098,306 @@ export class ResourcesService {
       throw error;
     }
   }
+  // Check if a user has liked a resource
+  async checkUserLikeStatus(resourceId, userId) {
+    try {
+      // Create a hash-based ID that will be consistent but shorter
+      const userLikeId = this.generateRelationshipId(userId, resourceId);
+      
+      // Check if the like record exists in the likes collection
+      const likeRecord = await databases.getDocument(
+        DATABASE_ID,
+        '67fa6ad30013d2b49a9b', // Likes collection
+        userLikeId
+      ).catch(() => null); // Return null if record doesn't exist
+      
+      return !!likeRecord; // Convert to boolean
+    } catch (error) {
+      console.error(`Error checking like status for resource ${resourceId}:`, error);
+      return false; // Default to not liked on error
+    }
+  }
+  
+  // Check if a user has bookmarked a resource
+  async checkUserBookmarkStatus(resourceId, userId) {
+    try {
+      // Create a hash-based ID that will be consistent but shorter
+      const userBookmarkId = this.generateRelationshipId(userId, resourceId);
+      
+      // Check if the bookmark record exists in the bookmarks collection
+      const bookmarkRecord = await databases.getDocument(
+        DATABASE_ID,
+        '67fa6b2000029c80a8c9', // Bookmarks collection
+        userBookmarkId
+      ).catch(() => null); // Return null if record doesn't exist
+      
+      return !!bookmarkRecord; // Convert to boolean
+    } catch (error) {
+      console.error(`Error checking bookmark status for resource ${resourceId}:`, error);
+      return false; // Default to not bookmarked on error
+    }
+  }
+  
+  // Like a resource
+  async likeResource(resourceId, userId) {
+    try {
+      // First check if the user has already liked this resource
+      const hasLiked = await this.checkUserLikeStatus(resourceId, userId);
+      
+      if (hasLiked) {
+        console.log('User has already liked this resource');
+        return null; // Return null to indicate no action was taken
+      }
+      
+      // 1. Get the current resource to update the likes count
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      // 2. Update the resource with incremented likes count
+      const updatedLikes = (resource.likes || 0) + 1;
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          likes: updatedLikes
+        }
+      );
+      
+      // 3. Create a record of this user liking this resource using the proper ID format
+      const userLikeId = this.generateRelationshipId(userId, resourceId);
+      await databases.createDocument(
+        DATABASE_ID,
+        '67fa6ad30013d2b49a9b', // Likes collection
+        userLikeId,
+        {
+          userId: userId,
+          resourceId: resourceId,
+          timestamp: new Date().toISOString()
+        }
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error liking resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+  
+  // Unlike a resource
+  async unlikeResource(resourceId, userId) {
+    try {
+      // First check if the user has liked this resource
+      const hasLiked = await this.checkUserLikeStatus(resourceId, userId);
+      
+      if (!hasLiked) {
+        console.log('User has not liked this resource');
+        return null; // Return null to indicate no action was taken
+      }
+      
+      // 1. Get the current resource to update the likes count
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      // 2. Update the resource with decremented likes count
+      const updatedLikes = Math.max((resource.likes || 0) - 1, 0); // Prevent negative values
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          likes: updatedLikes
+        }
+      );
+      
+      // 3. Delete the record of this user liking this resource using the proper ID format
+      const userLikeId = this.generateRelationshipId(userId, resourceId);
+      await databases.deleteDocument(
+        DATABASE_ID,
+        '67fa6ad30013d2b49a9b',
+        userLikeId
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error unliking resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+  
+  // Bookmark a resource
+  async bookmarkResource(resourceId, userId) {
+    try {
+      // First check if the user has already bookmarked this resource
+      const hasBookmarked = await this.checkUserBookmarkStatus(resourceId, userId);
+      
+      if (hasBookmarked) {
+        console.log('User has already bookmarked this resource');
+        return null; // Return null to indicate no action was taken
+      }
+      
+      // 1. Get the current resource
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      // 2. Update bookmarks count
+      const updatedBookmarks = (resource.bookmarks || 0) + 1;
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          bookmarks: updatedBookmarks
+        }
+      );
+      
+      // 3. Create a record of this user bookmarking this resource using the proper ID format
+      const userBookmarkId = this.generateRelationshipId(userId, resourceId);
+      await databases.createDocument(
+        DATABASE_ID,
+        '67fa6b2000029c80a8c9', // Bookmarks collection
+        userBookmarkId,
+        {
+          userId: userId,
+          resourceId: resourceId,
+          timestamp: new Date().toISOString()
+        }
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error bookmarking resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+  
+  // Remove bookmark
+  async removeBookmark(resourceId, userId) {
+    try {
+      // First check if the user has bookmarked this resource
+      const hasBookmarked = await this.checkUserBookmarkStatus(resourceId, userId);
+      
+      if (!hasBookmarked) {
+        console.log('User has not bookmarked this resource');
+        return null; // Return null to indicate no action was taken
+      }
+      
+      // 1. Get the current resource
+      const resource = await this.getResourceById(resourceId);
+      
+      if (!resource) {
+        throw new Error(`Resource with ID ${resourceId} not found`);
+      }
+      
+      // 2. Update bookmarks count
+      const updatedBookmarks = Math.max((resource.bookmarks || 0) - 1, 0); // Prevent negative values
+      const updatedResource = await databases.updateDocument(
+        DATABASE_ID,
+        RESOURCES_COLLECTION_ID,
+        resourceId,
+        {
+          bookmarks: updatedBookmarks
+        }
+      );
+      
+      // 3. Delete the record of this user bookmarking this resource using the proper ID format
+      const userBookmarkId = this.generateRelationshipId(userId, resourceId);
+      await databases.deleteDocument(
+        DATABASE_ID,
+        '67fa6b2000029c80a8c9',
+        userBookmarkId
+      );
+      
+      return updatedResource;
+    } catch (error) {
+      console.error(`Error removing bookmark for resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+  
+  // Helper method to generate a valid relationship ID
+  generateRelationshipId(userId, resourceId) {
+    // Create a simple hash to ensure the ID is valid and not too long
+    // We'll take parts of each ID and combine them, ensuring the result is under 36 chars
+    // and consists only of valid characters
+    
+    // First, make sure we're working with strings
+    const userStr = String(userId);
+    const resourceStr = String(resourceId);
+    
+    // Take first 15 chars of user ID (or all if shorter)
+    const userPart = userStr.substring(0, 15);
+    
+    // Take last 15 chars of resource ID (or all if shorter)
+    const resourcePart = resourceStr.substring(Math.max(0, resourceStr.length - 15));
+    
+    // Combine with a separator
+    let combinedId = `${userPart}_${resourcePart}`;
+    
+    // Ensure the ID doesn't start with a special character
+    if (combinedId.match(/^[^a-zA-Z0-9]/)) {
+      combinedId = `a${combinedId.substring(1)}`;
+    }
+    
+    // Replace any invalid characters with underscores
+    combinedId = combinedId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    
+    // Ensure it's not longer than 36 chars (should already be max 31)
+    return combinedId.substring(0, 36);
+  }
+  
+  // Get resources bookmarked by a user - also needs update
+  async getUserBookmarks(userId, limit = 20, offset = 0) {
+    try {
+      // First get all bookmark records for this user
+      const bookmarkRecords = await databases.listDocuments(
+        DATABASE_ID,
+        '67fa6b2000029c80a8c9',
+        [
+          Query.equal('userId', userId),
+          Query.limit(limit),
+          Query.offset(offset),
+          Query.orderDesc('timestamp')
+        ]
+      );
+      
+      // Extract resource IDs from the bookmark records
+      const resourceIds = bookmarkRecords.documents.map(record => record.resourceId);
+      
+      if (resourceIds.length === 0) {
+        return []; // No bookmarks found
+      }
+      
+      // Fetch all bookmarked resources
+      // Note: This might need to be optimized for large numbers of bookmarks
+      const bookmarkedResources = [];
+      for (const resourceId of resourceIds) {
+        try {
+          const resource = await this.getResourceById(resourceId);
+          if (resource) {
+            bookmarkedResources.push(resource);
+          }
+        } catch (err) {
+          console.error(`Error fetching bookmarked resource ${resourceId}:`, err);
+          // Continue with the next resource
+        }
+      }
+      
+      return bookmarkedResources;
+    } catch (error) {
+      console.error(`Error fetching bookmarks for user ${userId}:`, error);
+      throw error;
+    }
+  }
 }
 // Create and export a singleton instance
 export const resourcesService = new ResourcesService();
