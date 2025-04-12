@@ -1,32 +1,35 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
   TextInput, 
   StyleSheet, 
-  ScrollView, 
+  FlatList,
   TouchableOpacity, 
   Image, 
   ActivityIndicator,
-  RefreshControl 
+  RefreshControl,
+  Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Search, BookOpen, GraduationCap, Chrome as Home, Bus, Euro, Coffee, Plus, RefreshCw } from 'lucide-react-native';
 import { resourcesService } from '@/services/authService';
 
+const { width } = Dimensions.get('window');
+
 export default function ResourcesScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [resources, setResources] = useState([]);
-  const [filteredResources, setFilteredResources] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [featuredResource, setFeaturedResource] = useState(null);
   const [activeCategory, setActiveCategory] = useState(null);
+  const [error, setError] = useState(null);
   const router = useRouter();
 
   // Define the categories with their icons
-  const categories = [
+  const categories = useMemo(() => [
     {
       id: 'academic',
       title: 'Academic Life',
@@ -57,7 +60,6 @@ export default function ResourcesScreen() {
       icon: Coffee,
       color: '#FF9A8B',
     },
-    // Add all other categories from your create page
     {
       id: 'getting-started',
       title: 'Getting Started',
@@ -76,38 +78,75 @@ export default function ResourcesScreen() {
       icon: BookOpen,
       color: '#E0E7FF',
     },
-  ];
+  ], []);
+
+  // Group resources by category
+  const filteredResources = useMemo(() => {
+    // Create an object with category keys and filtered resources
+    return categories.reduce((acc, category) => {
+      acc[category.id] = resources.filter(resource => resource.category === category.id);
+      return acc;
+    }, {});
+  }, [resources, categories]);
 
   // Fetch all resources on component mount
   useEffect(() => {
-    fetchResources();
+    let isMounted = true;
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await resourcesService.getAllResources(50, 0);
+        
+        if (isMounted) {
+          setResources(data || []);
+          
+          // Find a featured resource (could be based on most likes, bookmarks, or designated as featured)
+          const featured = data.find(r => r.featured === true) || data[0];
+          setFeaturedResource(featured);
+        }
+      } catch (error) {
+        console.error('Failed to fetch resources:', error);
+        if (isMounted) {
+          setError('Failed to load resources. Please try again.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadData();
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Whenever resources change, reorganize them by category
-  useEffect(() => {
-    organizeResourcesByCategory();
-  }, [resources]);
-
-  const fetchResources = async () => {
+  const fetchResources = useCallback(async () => {
     try {
       setIsLoading(true);
+      setError(null);
       const data = await resourcesService.getAllResources(50, 0);
-      console.log('Fetched resources:', data);
-      setResources(data);
+      
+      setResources(data || []);
       
       // Find a featured resource (could be based on most likes, bookmarks, or designated as featured)
       const featured = data.find(r => r.featured === true) || data[0];
       setFeaturedResource(featured);
-      
-      setIsLoading(false);
     } catch (error) {
       console.error('Failed to fetch resources:', error);
+      setError('Failed to load resources. Please try again.');
+    } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    setError(null);
     try {
       // Reset active category and search when refreshing
       setActiveCategory(null);
@@ -115,80 +154,184 @@ export default function ResourcesScreen() {
       await fetchResources();
     } catch (error) {
       console.error('Failed to refresh resources:', error);
+      setError('Failed to refresh. Pull down to try again.');
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchResources]);
 
-  const organizeResourcesByCategory = () => {
-    // Create an object with category keys and filtered resources
-    const grouped = categories.reduce((acc, category) => {
-      acc[category.id] = resources.filter(resource => resource.category === category.id);
-      return acc;
-    }, {});
-    
-    setFilteredResources(grouped);
-  };
-
-  const handleSearch = async (text) => {
+  const handleSearch = useCallback(async (text) => {
     setSearchQuery(text);
     if (text.length > 2) {
       try {
+        setIsLoading(true);
+        setError(null);
         const results = await resourcesService.searchResources(text);
-        setResources(results);
+        setResources(results || []);
       } catch (error) {
         console.error('Search failed:', error);
+        setError(`Failed to search for "${text}". Please try again.`);
+      } finally {
+        setIsLoading(false);
       }
     } else if (text.length === 0) {
       fetchResources(); // Reset to all resources when search is cleared
     }
-  };
+  }, [fetchResources]);
 
-  const handleCategoryPress = async (categoryId) => {
+  const handleCategoryPress = useCallback(async (categoryId) => {
     try {
       setIsLoading(true);
+      setError(null);
       setActiveCategory(categoryId);
       const categoryResources = await resourcesService.getResourcesByCategory(categoryId);
-      setResources(categoryResources);
-      setIsLoading(false);
+      setResources(categoryResources || []);
     } catch (error) {
       console.error(`Failed to fetch resources for category ${categoryId}:`, error);
+      setError(`Failed to load ${categories.find(c => c.id === categoryId)?.title || 'category'} resources.`);
+    } finally {
       setIsLoading(false);
     }
-  };
+  }, [categories]);
 
-  const navigateToResource = (resourceId) => {
-    router.push(`/resources/${resourceId}`);
-  };
+  const navigateToResource = useCallback((resourceId) => {
+    if (resourceId) {
+      router.push(`/resources/${resourceId}`);
+    }
+  }, [router]);
   
-  const navigateToCreateResource = () => {
+  const navigateToCreateResource = useCallback(() => {
     router.push('/resources/create');
-  };
+  }, [router]);
 
   // Helper to get image URL
-  const getImageUrl = (resource) => {
+  const getImageUrl = useCallback((resource) => {
+    if (!resource) return null;
+    
     // First check if resource has a direct coverImageUrl
-    if (resource.coverImageUrl) {
+    if (resource.coverImageUrl && typeof resource.coverImageUrl === 'string') {
       return resource.coverImageUrl;
     }
     
     // Then check if it has a coverImage file ID that needs to be converted
-    if (resource.coverImage) {
+    if (resource.coverImage && typeof resource.coverImage === 'string') {
       return resourcesService.getResourceImageUrl(resource.coverImage);
     }
     
     // Default fallback image
     return 'https://images.unsplash.com/photo-1592496001020-d31bd830651f?q=80&w=800&auto=format&fit=crop';
-  };
+  }, []);
 
   // Format date to "X days ago"
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays <= 1 ? 'Updated today' : `Updated ${diffDays} days ago`;
-  };
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return 'Recently updated';
+    
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffTime = Math.abs(now - date);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= 1 ? 'Updated today' : `Updated ${diffDays} days ago`;
+    } catch (e) {
+      return 'Recently updated';
+    }
+  }, []);
+
+  const renderCategory = useCallback(({ item }) => {
+    const categoryResources = filteredResources[item.id] || [];
+    if (categoryResources.length === 0) return null;
+    
+    return (
+      <View key={item.id} style={styles.categorySection}>
+        <TouchableOpacity 
+          style={styles.categoryHeader}
+          onPress={() => handleCategoryPress(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`View all ${item.title} resources`}
+        >
+          <View style={[styles.categoryIcon, { backgroundColor: item.color }]}>
+            <item.icon size={24} color="#fff" />
+          </View>
+          <Text style={styles.categoryTitle}>{item.title}</Text>
+        </TouchableOpacity>
+
+        <FlatList
+          data={categoryResources.slice(0, 2)}
+          keyExtractor={article => article.$id}
+          scrollEnabled={false}
+          renderItem={({ item: article }) => (
+            <TouchableOpacity 
+              key={article.$id} 
+              style={styles.articleCard}
+              onPress={() => navigateToResource(article.$id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Read article: ${article.title}`}
+            >
+              <Image
+                source={{ uri: getImageUrl(article) }}
+                style={styles.articleCardImage}
+                accessibilityLabel={`Cover image for ${article.title}`}
+              />
+              <View style={styles.articleContent}>
+                <Text style={styles.articleTitle} numberOfLines={2}>{article.title}</Text>
+                <Text style={styles.articleDescription} numberOfLines={2}>{article.description}</Text>
+                <Text style={styles.articleMeta}>{article.readTime || '5 min read'}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          contentContainerStyle={styles.articlesList}
+        />
+        
+        {categoryResources.length > 2 && (
+          <TouchableOpacity 
+            style={styles.seeMoreButton}
+            onPress={() => handleCategoryPress(item.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`See all ${categoryResources.length} ${item.title} resources`}
+          >
+            <Text style={styles.seeMoreText}>See all {categoryResources.length} resources</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }, [filteredResources, handleCategoryPress, navigateToResource, getImageUrl]);
+
+  const renderCategoryFilter = useCallback(({ item }) => (
+    <TouchableOpacity 
+      key={item.id}
+      style={[
+        styles.categoryFilterButton, 
+        { backgroundColor: item.color + '40' }, // Adding transparency
+        activeCategory === item.id && styles.activeCategoryButton
+      ]}
+      onPress={() => handleCategoryPress(item.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`Filter by ${item.title}`}
+      accessibilityState={{ selected: activeCategory === item.id }}
+    >
+      <item.icon size={16} color={activeCategory === item.id ? '#fff' : item.color.replace('40', '')} />
+      <Text style={[
+        styles.categoryFilterText,
+        activeCategory === item.id && styles.activeCategoryText
+      ]}>{item.title}</Text>
+    </TouchableOpacity>
+  ), [activeCategory, handleCategoryPress]);
+
+  const renderError = useCallback(() => (
+    <View style={styles.errorContainer}>
+      <Text style={styles.errorText}>{error}</Text>
+      <TouchableOpacity 
+        style={styles.retryButton}
+        onPress={fetchResources}
+        accessibilityRole="button"
+        accessibilityLabel="Retry loading resources"
+      >
+        <RefreshCw size={16} color="#fff" />
+        <Text style={styles.retryButtonText}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  ), [error, fetchResources]);
 
   if (isLoading && !refreshing) {
     return (
@@ -201,8 +344,180 @@ export default function ResourcesScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
-        contentContainerStyle={styles.content}
+      <FlatList
+        data={!activeCategory ? categories : []}
+        renderItem={renderCategory}
+        keyExtractor={item => item.id}
+        ListHeaderComponent={
+          <>
+            <View style={styles.header}>
+              <View>
+                <Text style={styles.title}>Resources</Text>
+                <Text style={styles.subtitle}>Essential guides for student life</Text>
+              </View>
+              <View style={styles.headerButtons}>
+                <TouchableOpacity 
+                  style={styles.refreshButton}
+                  onPress={onRefresh}
+                  accessibilityRole="button"
+                  accessibilityLabel="Refresh resources"
+                  disabled={isLoading || refreshing}
+                >
+                  <RefreshCw size={20} color="#000" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.addButton}
+                  onPress={navigateToCreateResource}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create new resource"
+                >
+                  <Plus size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.searchContainer}>
+              <Search size={20} color="#666" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search resources..."
+                value={searchQuery}
+                onChangeText={handleSearch}
+                accessibilityLabel="Search resources"
+                returnKeyType="search"
+                clearButtonMode="while-editing"
+              />
+            </View>
+
+            {/* Category Filters */}
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={categories}
+              renderItem={renderCategoryFilter}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.categoryFilterContainer}
+              ListHeaderComponent={
+                <TouchableOpacity 
+                  style={[
+                    styles.categoryFilterButton, 
+                    activeCategory === null && styles.activeCategoryButton
+                  ]}
+                  onPress={() => {
+                    setActiveCategory(null);
+                    fetchResources();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show all categories"
+                  accessibilityState={{ selected: activeCategory === null }}
+                >
+                  <Text style={[
+                    styles.categoryFilterText,
+                    activeCategory === null && styles.activeCategoryText
+                  ]}>All</Text>
+                </TouchableOpacity>
+              }
+            />
+
+            {/* Error State */}
+            {error && renderError()}
+
+            {/* Empty State */}
+            {resources.length === 0 && !isLoading && !error && (
+              <View style={styles.emptyStateContainer}>
+                <Image 
+                  source={{ uri: 'https://images.unsplash.com/photo-1588345921523-c2dcdb7f1dcd?q=80&w=400&auto=format&fit=crop'}} 
+                  style={styles.emptyStateImage}
+                  accessibilityLabel="No resources found illustration"
+                />
+                <Text style={styles.emptyStateTitle}>No resources found</Text>
+                <Text style={styles.emptyStateDescription}>
+                  {activeCategory 
+                    ? `There are no resources in this category yet.` 
+                    : searchQuery 
+                      ? `We couldn't find any resources matching "${searchQuery}".`
+                      : `There are no resources available yet.`
+                  }
+                </Text>
+                <TouchableOpacity 
+                  style={styles.createResourceButton}
+                  onPress={navigateToCreateResource}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create a new resource"
+                >
+                  <Plus size={18} color="#fff" />
+                  <Text style={styles.createResourceText}>Create Resource</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Featured Resource */}
+            {featuredResource && !activeCategory && resources.length > 0 && (
+              <View style={styles.featuredSection}>
+                <Text style={styles.sectionTitle}>Featured Guide</Text>
+                <TouchableOpacity 
+                  style={styles.featuredCard}
+                  onPress={() => navigateToResource(featuredResource.$id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Featured guide: ${featuredResource.title}`}
+                >
+                  <Image
+                    source={{ uri: getImageUrl(featuredResource) }}
+                    style={styles.featuredImage}
+                    accessibilityLabel={`Cover image for ${featuredResource.title}`}
+                  />
+                  <View style={styles.featuredContent}>
+                    <View style={styles.featuredBadge}>
+                      <BookOpen size={16} color="#fff" />
+                      <Text style={styles.featuredBadgeText}>Comprehensive Guide</Text>
+                    </View>
+                    <Text style={styles.featuredTitle}>{featuredResource.title}</Text>
+                    <Text style={styles.featuredDescription} numberOfLines={3}>
+                      {featuredResource.description || 'Everything you need to know for your first month as an international student'}
+                    </Text>
+                    <Text style={styles.featuredMeta}>{featuredResource.readTime || '12 min read'} • {formatDate(featuredResource.updatedAt)}</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        }
+        ListFooterComponent={
+          activeCategory && filteredResources[activeCategory] && filteredResources[activeCategory].length > 0 ? (
+            <View style={styles.activeCategory}>
+              <Text style={styles.sectionTitle}>
+                {categories.find(cat => cat.id === activeCategory)?.title || 'Resources'}
+              </Text>
+              <FlatList
+                data={filteredResources[activeCategory]}
+                keyExtractor={article => article.$id}
+                scrollEnabled={false}
+                renderItem={({ item: article }) => (
+                  <TouchableOpacity 
+                    key={article.$id} 
+                    style={styles.articleCardFull}
+                    onPress={() => navigateToResource(article.$id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Read article: ${article.title}`}
+                  >
+                    <Image
+                      source={{ uri: getImageUrl(article) }}
+                      style={styles.articleImage}
+                      accessibilityLabel={`Cover image for ${article.title}`}
+                    />
+                    <View style={styles.articleContent}>
+                      <Text style={styles.articleTitle} numberOfLines={2}>{article.title}</Text>
+                      <Text style={styles.articleDescription} numberOfLines={3}>{article.description}</Text>
+                      <Text style={styles.articleMeta}>{article.readTime || '5 min read'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+                contentContainerStyle={styles.articlesList}
+              />
+            </View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -211,217 +526,12 @@ export default function ResourcesScreen() {
             tintColor="#000"
           />
         }
-      >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Resources</Text>
-            <Text style={styles.subtitle}>Essential guides for student life</Text>
-          </View>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity 
-              style={styles.refreshButton}
-              onPress={onRefresh}
-            >
-              <RefreshCw size={20} color="#000" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.addButton}
-              onPress={navigateToCreateResource}
-            >
-              <Plus size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.searchContainer}>
-          <Search size={20} color="#666" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search resources..."
-            value={searchQuery}
-            onChangeText={handleSearch}
-          />
-        </View>
-
-        {/* Categories horizontal scroll */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryFilterContainer}
-        >
-          <TouchableOpacity 
-            style={[
-              styles.categoryFilterButton, 
-              activeCategory === null && styles.activeCategoryButton
-            ]}
-            onPress={() => {
-              setActiveCategory(null);
-              fetchResources();
-            }}
-          >
-            <Text style={[
-              styles.categoryFilterText,
-              activeCategory === null && styles.activeCategoryText
-            ]}>All</Text>
-          </TouchableOpacity>
-          
-          {categories.map(category => (
-            <TouchableOpacity 
-              key={category.id}
-              style={[
-                styles.categoryFilterButton, 
-                { backgroundColor: category.color + '40' }, // Adding transparency
-                activeCategory === category.id && styles.activeCategoryButton
-              ]}
-              onPress={() => handleCategoryPress(category.id)}
-            >
-              <category.icon size={16} color={activeCategory === category.id ? '#fff' : category.color.replace('40', '')} />
-              <Text style={[
-                styles.categoryFilterText,
-                activeCategory === category.id && styles.activeCategoryText
-              ]}>{category.title}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {resources.length === 0 && !isLoading && (
-          <View style={styles.emptyStateContainer}>
-            <Image 
-              source={{ uri: 'https://images.unsplash.com/photo-1588345921523-c2dcdb7f1dcd?q=80&w=400&auto=format&fit=crop'}} 
-              style={styles.emptyStateImage}
-            />
-            <Text style={styles.emptyStateTitle}>No resources found</Text>
-            <Text style={styles.emptyStateDescription}>
-              {activeCategory 
-                ? `There are no resources in this category yet.` 
-                : searchQuery 
-                  ? `We couldn't find any resources matching "${searchQuery}".`
-                  : `There are no resources available yet.`
-              }
-            </Text>
-            <TouchableOpacity 
-              style={styles.createResourceButton}
-              onPress={navigateToCreateResource}
-            >
-              <Plus size={18} color="#fff" />
-              <Text style={styles.createResourceText}>Create Resource</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {featuredResource && !activeCategory && resources.length > 0 && (
-          <View style={styles.featuredSection}>
-            <Text style={styles.sectionTitle}>Featured Guide</Text>
-            <TouchableOpacity 
-              style={styles.featuredCard}
-              onPress={() => navigateToResource(featuredResource.$id)}
-            >
-              <Image
-                source={{ uri:  getImageUrl(featuredResource) }}
-                style={styles.featuredImage}
-              />
-              <View style={styles.featuredContent}>
-                <View style={styles.featuredBadge}>
-                  <BookOpen size={16} color="#fff" />
-                  <Text style={styles.featuredBadgeText}>Comprehensive Guide</Text>
-                </View>
-                <Text style={styles.featuredTitle}>{featuredResource.title}</Text>
-                <Text style={styles.featuredDescription}>
-                  {featuredResource.description || 'Everything you need to know for your first month as an international student'}
-                </Text>
-                <Text style={styles.featuredMeta}>{featuredResource.readTime || '12 min read'} • {formatDate(featuredResource.updatedAt)}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* If a category is active, show only that category's resources */}
-        {activeCategory && filteredResources[activeCategory] && filteredResources[activeCategory].length > 0 && (
-          <View style={styles.activeCategory}>
-            <Text style={styles.sectionTitle}>
-              {categories.find(cat => cat.id === activeCategory)?.title || 'Resources'}
-            </Text>
-            <View style={styles.articlesList}>
-              {filteredResources[activeCategory].map((article) => (
-                <TouchableOpacity 
-                  key={article.$id} 
-                  style={styles.articleCardFull}
-                  onPress={() => navigateToResource(article.$id)}
-                >
-                  {article.coverImage && (
-                    <Image
-                      source={{ uri: getImageUrl(article) }}
-                      style={styles.articleImage}
-                    />
-                  )}
-                  <View style={styles.articleContent}>
-                    <Text style={styles.articleTitle}>{article.title}</Text>
-                    <Text style={styles.articleDescription}>{article.description}</Text>
-                    <Text style={styles.articleMeta}>{article.readTime || '5 min read'}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-        
-        {/* Show all categories if no specific category is selected */}
-        {!activeCategory && resources.length > 0 && Object.entries(filteredResources).map(([categoryId, categoryResources]) => {
-          if (categoryResources.length === 0) return null;
-          
-          const categoryInfo = categories.find(cat => cat.id === categoryId);
-          if (!categoryInfo) return null;
-          
-          return (
-            <View key={categoryId} style={styles.categorySection}>
-              <TouchableOpacity 
-                style={styles.categoryHeader}
-                onPress={() => handleCategoryPress(categoryId)}
-              >
-                <View style={[styles.categoryIcon, { backgroundColor: categoryInfo.color }]}>
-                  <categoryInfo.icon size={24} color="#fff" />
-                </View>
-                <Text style={styles.categoryTitle}>{categoryInfo.title}</Text>
-              </TouchableOpacity>
-
-              <View style={styles.articlesList}>
-                {categoryResources.slice(0, 2).map((article) => (
-                  <TouchableOpacity 
-                    key={article.$id} 
-                    style={styles.articleCard}
-                    onPress={() => navigateToResource(article.$id)}
-                  >
-                    {article.coverImage && (
-                      <Image
-                        source={{ uri: getImageUrl(article.coverImage) }}
-                        style={styles.articleCardImage}
-                      />
-                    )}
-                    <View style={styles.articleContent}>
-                      <Text style={styles.articleTitle}>{article.title}</Text>
-                      <Text style={styles.articleDescription}>{article.description}</Text>
-                      <Text style={styles.articleMeta}>{article.readTime || '5 min read'}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              
-              {categoryResources.length > 2 && (
-                <TouchableOpacity 
-                  style={styles.seeMoreButton}
-                  onPress={() => handleCategoryPress(categoryId)}
-                >
-                  <Text style={styles.seeMoreText}>See all {categoryResources.length} resources</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+        onEndReachedThreshold={0.5}
+        contentContainerStyle={styles.content}
+      />
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -441,6 +551,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: 'row',
@@ -524,6 +635,7 @@ const styles = StyleSheet.create({
   featuredImage: {
     width: '100%',
     height: 200,
+    backgroundColor: '#f5f5f5',
   },
   featuredContent: {
     padding: 16,
@@ -581,7 +693,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
   },
   articlesList: {
-    gap: 12,
+    paddingBottom: 8,
   },
   articleCard: {
     backgroundColor: '#fff',
@@ -601,7 +713,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#eee',
     overflow: 'hidden',
-    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -611,10 +722,12 @@ const styles = StyleSheet.create({
   articleCardImage: {
     width: '100%',
     height: 160,
+    backgroundColor: '#f5f5f5',
   },
   articleImage: {
     width: '100%',
     height: 180,
+    backgroundColor: '#f5f5f5',
   },
   articleContent: {
     padding: 16,
@@ -649,7 +762,6 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   categoryFilterContainer: {
-    flexDirection: 'row',
     marginBottom: 24,
     paddingBottom: 8,
   },
@@ -689,6 +801,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     opacity: 0.7,
     borderRadius: 60,
+    backgroundColor: '#f5f5f5',
   },
   emptyStateTitle: {
     fontSize: 18,
@@ -717,5 +830,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter_500Medium',
     marginLeft: 8,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    padding: 16,
+    marginBottom: 24,
+    backgroundColor: '#FEECEB',
+    borderRadius: 8,
+  },
+  errorText: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#D32F2F',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D32F2F',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter_500Medium',
+    color: '#fff',
   }
 });
