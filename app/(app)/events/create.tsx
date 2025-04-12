@@ -14,6 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ArrowLeft, Calendar, Clock, MapPin, Users, Euro, Image as ImageIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, isValid, parseISO } from 'date-fns';
 import { eventsService } from '@/services/authService';
 import { useAuth } from '@/context/authContext';
 
@@ -28,12 +30,18 @@ export default function CreateEventScreen() {
     category: '',
     capacity: '',
     price: '',
-    organizer: user.name || user.fullname || user.$id || ''
+    organizer: user?.name || user?.fullname || user?.$id || ''
   });
+  
+  // Date/time picker states
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState(new Date());
   
   const [image, setImage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errors, setErrors] = useState({});
 
   // Function to pick image from gallery
   const pickImage = async () => {
@@ -56,14 +64,62 @@ export default function CreateEventScreen() {
     }
   };
 
+  // Handle date change
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setSelectedDate(selectedDate);
+      setFormData({
+        ...formData,
+        date: format(selectedDate, 'yyyy-MM-dd')
+      });
+    }
+  };
+
+  // Handle time change
+  const onTimeChange = (event, selectedTime) => {
+    setShowTimePicker(Platform.OS === 'ios');
+    if (selectedTime) {
+      setSelectedTime(selectedTime);
+      setFormData({
+        ...formData,
+        time: format(selectedTime, 'HH:mm')
+      });
+    }
+  };
+
   // Validate form
   const validateForm = () => {
-    if (!formData.title || !formData.description || !formData.date || 
-        !formData.time || !formData.location || !formData.category) {
-      setErrorMsg('Please fill all required fields');
-      return false;
+    const newErrors = {};
+    
+    if (!formData.title.trim()) 
+      newErrors.title = 'Title is required';
+    
+    if (!formData.description.trim()) 
+      newErrors.description = 'Description is required';
+    
+    if (!formData.date) 
+      newErrors.date = 'Date is required';
+    
+    if (!formData.time) 
+      newErrors.time = 'Time is required';
+    
+    if (!formData.location.trim()) 
+      newErrors.location = 'Location is required';
+    
+    if (!formData.category.trim()) 
+      newErrors.category = 'Category is required';
+    
+    // Validate that the event is not in the past
+    if (formData.date && formData.time) {
+      const eventDateTime = new Date(`${formData.date}T${formData.time}`);
+      if (isValid(eventDateTime) && eventDateTime < new Date()) {
+        newErrors.date = 'Event cannot be scheduled in the past';
+      }
     }
-    return true;
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   // Prepare file for upload
@@ -91,7 +147,6 @@ export default function CreateEventScreen() {
       if (!validateForm()) return;
       
       setIsLoading(true);
-      setErrorMsg('');
       
       // Format data for backend
       const eventData = {
@@ -103,7 +158,7 @@ export default function CreateEventScreen() {
         category: formData.category,
         capacity: parseInt(formData.capacity) || 0,
         price: parseFloat(formData.price) || 0,
-        organizer: user.name || user.fullname || user.$id,
+        organizer: user?.name || user?.fullname || user?.$id,
       };
       
       // Prepare image file if exists
@@ -118,7 +173,7 @@ export default function CreateEventScreen() {
       
     } catch (error) {
       console.error('Error creating event:', error);
-      setErrorMsg(error.message || 'Failed to create event. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to create event. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -134,82 +189,117 @@ export default function CreateEventScreen() {
           <Text style={styles.title}>Create Event</Text>
         </View>
 
-        {errorMsg ? (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </View>
-        ) : null}
-
         <View style={styles.form}>
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Event Title *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, errors.title && styles.inputError]}
               placeholder="e.g., International Students Welcome Party"
               value={formData.title}
-              onChangeText={(text) => setFormData({ ...formData, title: text })}
+              onChangeText={(text) => {
+                setFormData({ ...formData, title: text });
+                if (errors.title) setErrors({...errors, title: ''});
+              }}
             />
+            {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Description *</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, errors.description && styles.inputError]}
               multiline
               placeholder="Describe your event..."
               value={formData.description}
-              onChangeText={(text) => setFormData({ ...formData, description: text })}
+              onChangeText={(text) => {
+                setFormData({ ...formData, description: text });
+                if (errors.description) setErrors({...errors, description: ''});
+              }}
             />
+            {errors.description ? <Text style={styles.errorText}>{errors.description}</Text> : null}
           </View>
 
           <View style={styles.row}>
             <View style={[styles.inputContainer, { flex: 1 }]}>
               <Text style={styles.label}>Date *</Text>
-              <View style={styles.iconInput}>
+              <TouchableOpacity 
+                style={[styles.iconInput, errors.date && styles.inputError]}
+                onPress={() => setShowDatePicker(true)}
+              >
                 <Calendar size={20} color="#666" />
-                <TextInput
-                  style={styles.iconTextInput}
-                  placeholder="YYYY-MM-DD"
-                  value={formData.date}
-                  onChangeText={(text) => setFormData({ ...formData, date: text })}
-                />
-              </View>
+                <Text style={styles.iconTextInput}>
+                  {formData.date || 'Select Date'}
+                </Text>
+              </TouchableOpacity>
+              {errors.date ? <Text style={styles.errorText}>{errors.date}</Text> : null}
             </View>
+            
             <View style={[styles.inputContainer, { flex: 1 }]}>
               <Text style={styles.label}>Time *</Text>
-              <View style={styles.iconInput}>
+              <TouchableOpacity 
+                style={[styles.iconInput, errors.time && styles.inputError]}
+                onPress={() => setShowTimePicker(true)}
+              >
                 <Clock size={20} color="#666" />
-                <TextInput
-                  style={styles.iconTextInput}
-                  placeholder="HH:MM"
-                  value={formData.time}
-                  onChangeText={(text) => setFormData({ ...formData, time: text })}
-                />
-              </View>
+                <Text style={styles.iconTextInput}>
+                  {formData.time || 'Select Time'}
+                </Text>
+              </TouchableOpacity>
+              {errors.time ? <Text style={styles.errorText}>{errors.time}</Text> : null}
             </View>
           </View>
 
+          {/* Date Picker Modal */}
+          {showDatePicker && (
+            <DateTimePicker
+              value={selectedDate}
+              mode="date"
+              display="default"
+              onChange={onDateChange}
+              minimumDate={new Date()}
+            />
+          )}
+
+          {/* Time Picker Modal */}
+          {showTimePicker && (
+            <DateTimePicker
+              value={selectedTime}
+              mode="time"
+              is24Hour={true}
+              display="default"
+              onChange={onTimeChange}
+            />
+          )}
+
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Location *</Text>
-            <View style={styles.iconInput}>
+            <View style={[styles.iconInput, errors.location && styles.inputError]}>
               <MapPin size={20} color="#666" />
               <TextInput
                 style={styles.iconTextInput}
                 placeholder="Event location"
                 value={formData.location}
-                onChangeText={(text) => setFormData({ ...formData, location: text })}
+                onChangeText={(text) => {
+                  setFormData({ ...formData, location: text });
+                  if (errors.location) setErrors({...errors, location: ''});
+                }}
               />
             </View>
+            {errors.location ? <Text style={styles.errorText}>{errors.location}</Text> : null}
           </View>
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Category *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, errors.category && styles.inputError]}
               placeholder="e.g., Social, Academic, Cultural"
               value={formData.category}
-              onChangeText={(text) => setFormData({ ...formData, category: text })}
+              onChangeText={(text) => {
+                setFormData({ ...formData, category: text });
+                if (errors.category) setErrors({...errors, category: ''});
+              }}
             />
+            {errors.category ? <Text style={styles.errorText}>{errors.category}</Text> : null}
           </View>
 
           <View style={styles.row}>
@@ -320,6 +410,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter_400Regular',
   },
+  inputError: {
+    borderColor: '#ff3b30',
+  },
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 4,
+  },
   textArea: {
     height: 120,
     textAlignVertical: 'top',
@@ -397,16 +496,5 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
-  },
-  errorContainer: {
-    backgroundColor: '#ffebee',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  errorText: {
-    color: '#d32f2f',
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
   },
 });

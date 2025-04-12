@@ -89,7 +89,7 @@ export default function CommunityScreen() {
         newPost.content.trim(),
         tagsArray,
         userProfile?.fullname || currentUser.name || 'Anonymous',
-        userProfile?.avatarUrl || 'https://via.placeholder.com/100',
+        userProfile?.avatar || 'https://via.placeholder.com/100',
         userProfile?.university || 'University not specified',
         userProfile?.course || 'Program not specified'
       );
@@ -262,10 +262,10 @@ export default function CommunityScreen() {
                 />
               </View>
 
-              <TouchableOpacity style={styles.imageButton}>
+              {/* <TouchableOpacity style={styles.imageButton}>
                 <ImageIcon size={20} color="#666" />
                 <Text style={styles.imageButtonText}>Add Image</Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </ScrollView>
 
             <TouchableOpacity 

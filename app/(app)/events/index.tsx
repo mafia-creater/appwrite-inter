@@ -1,20 +1,47 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, useFocusEffect } from 'expo-router';
-import { Calendar, MapPin, Plus, Users } from 'lucide-react-native';
+import { Calendar, MapPin, Plus, Users, Clock } from 'lucide-react-native';
 import { eventsService } from '@/services/authService';
+import { format, isPast, isToday, isFuture, parseISO, addHours } from 'date-fns';
 
 export default function EventsScreen() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState('all'); // 'all', 'today', 'upcoming'
 
   const fetchEvents = async () => {
     try {
       setLoading(true);
-      const eventsData = await eventsService.getEvents();
-      setEvents(eventsData);
+      // Get active events (not expired)
+      const eventsData = await eventsService.getActiveEvents();
+      
+      // Process events to add status
+      const processedEvents = eventsData.map(event => {
+        const eventDate = parseISO(`${event.date}T${event.time}`);
+        const eventEndTime = addHours(eventDate, 3); // Assuming events last 3 hours
+        
+        let status = 'upcoming';
+        if (isPast(eventEndTime)) {
+          status = 'ended';
+        } else if (isToday(eventDate)) {
+          status = 'today';
+          if (isPast(eventDate) && isFuture(eventEndTime)) {
+            status = 'ongoing';
+          }
+        }
+        
+        return {
+          ...event,
+          status,
+          formattedDate: format(eventDate, 'EEE, MMM d'),
+          formattedTime: format(eventDate, 'h:mm a')
+        };
+      });
+      
+      setEvents(processedEvents);
     } catch (error) {
       console.error('Error fetching events:', error);
     } finally {
@@ -33,14 +60,21 @@ export default function EventsScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const eventsData = await eventsService.getEvents();
-      setEvents(eventsData);
+      await fetchEvents();
     } catch (error) {
       console.error('Error refreshing events:', error);
     } finally {
       setRefreshing(false);
     }
   }, []);
+
+  // Filter events based on selected filter
+  const filteredEvents = events.filter(event => {
+    if (filter === 'all') return event.status !== 'ended';
+    if (filter === 'today') return event.status === 'today' || event.status === 'ongoing';
+    if (filter === 'upcoming') return event.status === 'upcoming';
+    return true;
+  });
 
   const renderEventCard = ({ item }) => (
     <Link href={`/events/${item.$id}`} asChild>
@@ -49,6 +83,11 @@ export default function EventsScreen() {
           source={{ uri: item.image_url || 'https://via.placeholder.com/400x200' }} 
           style={styles.eventImage} 
         />
+        {item.status === 'ongoing' && (
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>Happening Now</Text>
+          </View>
+        )}
         <View style={styles.eventContent}>
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{item.category}</Text>
@@ -58,7 +97,12 @@ export default function EventsScreen() {
           <View style={styles.eventDetails}>
             <View style={styles.detailRow}>
               <Calendar size={16} color="#666" />
-              <Text style={styles.detailText}>{item.date} • {item.time}</Text>
+              <Text style={styles.detailText}>{item.formattedDate}</Text>
+            </View>
+            
+            <View style={styles.detailRow}>
+              <Clock size={16} color="#666" />
+              <Text style={styles.detailText}>{item.formattedTime}</Text>
             </View>
             
             <View style={styles.detailRow}>
@@ -74,6 +118,41 @@ export default function EventsScreen() {
         </View>
       </TouchableOpacity>
     </Link>
+  );
+
+  // Filter tabs
+  const renderFilterTabs = () => (
+    <View style={styles.filterContainer}>
+      <TouchableOpacity 
+        style={[styles.filterTab, filter === 'all' && styles.activeFilterTab]}
+        onPress={() => setFilter('all')}
+      >
+        <Text style={[styles.filterText, filter === 'all' && styles.activeFilterText]}>
+          All
+        </Text>
+        {filter === 'all' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={[styles.filterTab, filter === 'today' && styles.activeFilterTab]}
+        onPress={() => setFilter('today')}
+      >
+        <Text style={[styles.filterText, filter === 'today' && styles.activeFilterText]}>
+          Today
+        </Text>
+        {filter === 'today' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={[styles.filterTab, filter === 'upcoming' && styles.activeFilterTab]}
+        onPress={() => setFilter('upcoming')}
+      >
+        <Text style={[styles.filterText, filter === 'upcoming' && styles.activeFilterText]}>
+          Upcoming
+        </Text>
+        {filter === 'upcoming' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+    </View>
   );
 
   if (loading && !refreshing) {
@@ -99,9 +178,11 @@ export default function EventsScreen() {
           </TouchableOpacity>
         </Link>
       </View>
+      
+      {renderFilterTabs()}
 
       <FlatList
-        data={events}
+        data={filteredEvents}
         renderItem={renderEventCard}
         keyExtractor={item => item.$id}
         contentContainerStyle={styles.list}
@@ -115,12 +196,16 @@ export default function EventsScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No events found</Text>
+            <Text style={styles.emptyText}>
+              {filter === 'all' ? 'No events found' : 
+               filter === 'today' ? 'No events today' : 
+               'No upcoming events'}
+            </Text>
             <TouchableOpacity 
               style={styles.retryButton} 
               onPress={fetchEvents}
             >
-              <Text style={styles.retryText}>Retry</Text>
+              <Text style={styles.retryText}>Refresh</Text>
             </TouchableOpacity>
           </View>
         }
@@ -128,6 +213,7 @@ export default function EventsScreen() {
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -230,5 +316,38 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 24,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  filterTab: {
+    marginRight: 24,
+    paddingVertical: 12,
+    position: 'relative',
+  },
+  activeFilterTab: {
+    // Using minimal styling here as we'll use the indicator instead
+  },
+  filterText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+    color: '#777',
+  },
+  activeFilterText: {
+    color: '#000',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  activeIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: '#000',
+    borderRadius: 3,
   },
 });

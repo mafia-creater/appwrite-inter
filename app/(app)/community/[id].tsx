@@ -69,16 +69,10 @@ export default function PostDetailScreen() {
     
     for (const userId of uniqueUserIds) {
       try {
-        const profilesData = await authService.databases.listDocuments(
-          authService.DATABASE_ID,
-          authService.PROFILES_COLLECTION_ID,
-          [
-            Query.equal('userId', userId)
-          ]
-        );
-        
-        if (profilesData.documents.length > 0) {
-          profiles[userId] = profilesData.documents[0];
+        // Replace this with proper method call
+        const profile = await authService.getUserProfileById(userId);
+        if (profile) {
+          profiles[userId] = profile;
         }
       } catch (error) {
         console.error(`Error loading profile for user ${userId}:`, error);
@@ -94,7 +88,7 @@ export default function PostDetailScreen() {
       name: profile.fullname || 'Anonymous User',
       university: profile.university || 'University not specified',
       program: profile.course || 'Program not specified',
-      avatar: profile.avatarUrl || 'https://via.placeholder.com/100',
+      avatar: profile.avatar || 'https://via.placeholder.com/100',
     };
   };
 

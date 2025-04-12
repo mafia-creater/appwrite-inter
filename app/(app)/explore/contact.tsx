@@ -92,6 +92,7 @@ export default function ContactLandlordModal({
           // The housingService itself probably doesn't have direct access to the databases object
           // So we need to create the query and pass it to a method that can execute it
           const profiles = await housingService.searchProfiles(ownerId);
+    
           
           if (profiles && profiles.length > 0) {
             console.log("Profile found:", profiles[0]);

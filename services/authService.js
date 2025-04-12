@@ -280,6 +280,50 @@ export const authService = new AuthService();
 
 
 class EventsService {
+  async getActiveEvents() {
+    try {
+      // Get all events
+      const events = await this.getEvents();
+      
+      // Filter out expired events
+      const currentDate = new Date();
+      return events.filter(event => {
+        // Combine date and time fields to create event datetime
+        const eventDateTime = new Date(`${event.date}T${event.time}`);
+        
+        // Compare with current date
+        return eventDateTime >= currentDate;
+      });
+    } catch (error) {
+      console.error('Error getting active events:', error);
+      throw error;
+    }
+  }
+  
+  // Optional function to delete expired events (can be run periodically)
+  async cleanupExpiredEvents() {
+    try {
+      const events = await this.getEvents();
+      const currentDate = new Date();
+      
+      const expiredEvents = events.filter(event => {
+        const eventDateTime = new Date(`${event.date}T${event.time}`);
+        return eventDateTime < currentDate;
+      });
+      
+      // Delete expired events
+      const deletePromises = expiredEvents.map(event => 
+        this.deleteEvent(event.$id)
+      );
+      
+      await Promise.all(deletePromises);
+      return expiredEvents.length;
+    } catch (error) {
+      console.error('Error cleaning up expired events:', error);
+      throw error;
+    }
+  }
+  
     // Get all events
     async getEvents() {
       try {
@@ -417,37 +461,39 @@ class EventsService {
     
     // Join an event
     async joinEvent(eventId, userId) {
-        try {
-          // Get current event
-          const event = await this.getEvent(eventId);
+      try {
+        // Get current event
+        const event = await this.getEvent(eventId);
+        
+        // Create attendance record
+        await databases.createDocument(
+          DATABASE_ID,
+          '67e4266c00359e946aa2', // Attendance collection ID
+          ID.unique(),
+          {
+            events: eventId,
+            userId: userId,
+            status: 'pending'
+          }
+
           
-          // Create attendance record
-          await databases.createDocument(
-            DATABASE_ID,
-            '67e4266c00359e946aa2',
-            ID.unique(),
-            {
-              events: eventId,
-              user: userId,
-              status: 'pending'
-            }
-          );
-          
-          // Increment attendees count
-          return await databases.updateDocument(
-            DATABASE_ID,
-            EVENTS_COLLECTION_ID,
-            eventId,
-            {
-              attendees: event.attendees + 1,
-            }
-          );
-        } catch (error) {
-          console.error('Error joining event:', error);
-          throw error;
-        }
+        );
+        
+        // Increment attendees count - only update the attendees field, nothing else
+        return await databases.updateDocument(
+          DATABASE_ID,
+          EVENTS_COLLECTION_ID,
+          eventId,
+          {
+            attendees: event.attendees + 1,
+            // Don't include any other fields, especially not imageId
+          }
+        );
+      } catch (error) {
+        console.error('Error joining event:', error);
+        throw error;
       }
-    
+    }
     // Check if user is attending an event
     async isUserAttending(eventId, userId) {
         try {

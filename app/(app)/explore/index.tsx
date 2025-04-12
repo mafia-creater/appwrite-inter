@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link } from 'expo-router';
-import { Search, Bed, Bath, MapPin, Plus } from 'lucide-react-native';
+import { Search, Bed, Bath, MapPin, Plus, User } from 'lucide-react-native';
 import { housingService } from '@/services/authService'; // Import the housing service
 
 export default function ExploreScreen() {
@@ -22,12 +22,36 @@ export default function ExploreScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [owners, setOwners] = useState({});  // Add state to store owner info
 
   // Function to load housing listings
   const loadHousingListings = useCallback(async () => {
     try {
       setError(null);
       const listings = await housingService.getHousingListings();
+      
+      // Create an object to store unique owner IDs
+      const ownerIds = new Set();
+      listings.forEach(listing => {
+        if (listing.ownerId) {
+          ownerIds.add(listing.ownerId);
+        }
+      });
+      
+      // Fetch owner profiles for all listings
+      const ownersData = {};
+      for (const ownerId of ownerIds) {
+        try {
+          const ownerProfile = await housingService.searchProfiles(ownerId);
+          if (ownerProfile && ownerProfile.length > 0) {
+            ownersData[ownerId] = ownerProfile[0];
+          }
+        } catch (err) {
+          console.error(`Failed to fetch owner profile for ${ownerId}:`, err);
+        }
+      }
+      
+      setOwners(ownersData);
       setHousing(listings);
       setFilteredHousing(listings);
     } catch (error) {
@@ -67,55 +91,92 @@ export default function ExploreScreen() {
       console.error('Search failed:', error);
       // Fall back to client-side filtering if search API fails
       const filtered = housing.filter(item => 
-        item.title.toLowerCase().includes(text.toLowerCase()) ||
-        item.location.toLowerCase().includes(text.toLowerCase()) ||
-        item.type.toLowerCase().includes(text.toLowerCase())
+        item.title?.toLowerCase().includes(text.toLowerCase()) ||
+        item.location?.toLowerCase().includes(text.toLowerCase()) ||
+        item.type?.toLowerCase().includes(text.toLowerCase())
       );
       setFilteredHousing(filtered);
     }
   };
 
-  const renderHousingCard = ({ item }) => (
-    <Link href={`/explore/${item.$id}`} asChild>
-      <TouchableOpacity style={styles.card}>
-        <Image 
-          source={{ uri: item.images?.[0] || 'https://via.placeholder.com/600x400?text=No+Image' }} 
-          style={styles.cardImage} 
-        />
-        <View style={styles.cardContent}>
-          <View style={styles.typeBadge}>
-            <Text style={styles.typeText}>{item.type}</Text>
-          </View>
-          
-          <Text style={styles.cardTitle}>{item.title}</Text>
-          
-          <View style={styles.locationRow}>
-            <MapPin size={16} color="#666" />
-            <Text style={styles.locationText}>{item.location}</Text>
-          </View>
+  // Get secure image URL with fallback
+  const getSecureImageUrl = (url) => {
+    if (!url) return 'https://via.placeholder.com/600x400?text=No+Image';
+    
+    // Handle possible array
+    if (Array.isArray(url)) {
+      return url.length > 0 ? url[0] : 'https://via.placeholder.com/600x400?text=No+Image';
+    }
+    
+    // Ensure URL uses HTTPS
+    return url.replace(/^http:\/\//i, 'https://');
+  };
 
-          <View style={styles.detailsRow}>
-            <View style={styles.detail}>
-              <Bed size={16} color="#666" />
-              <Text style={styles.detailText}>{item.bedrooms} bed</Text>
+  const renderHousingCard = ({ item }) => {
+    // Get owner info
+    const owner = owners[item.ownerId] || {};
+    const ownerName = owner.fullname || 'Anonymous';
+    const ownerAvatar = owner.avatar || null;
+    
+    return (
+      <Link href={`/explore/${item.$id}`} asChild>
+        <TouchableOpacity style={styles.card}>
+          <Image 
+            source={{ uri: getSecureImageUrl(item.images) }} 
+            style={styles.cardImage}
+            defaultSource={require('@/assets/images/placeholder.png')} // Add a default image asset
+          />
+          <View style={styles.cardContent}>
+            <View style={styles.typeBadge}>
+              <Text style={styles.typeText}>{item.property_type || 'Unspecified'}</Text>
             </View>
-            <View style={styles.detail}>
-              <Bath size={16} color="#666" />
-              <Text style={styles.detailText}>{item.bathrooms} bath</Text>
+            
+            <Text style={styles.cardTitle}>{item.title || 'Untitled Listing'}</Text>
+            
+            <View style={styles.locationRow}>
+              <MapPin size={16} color="#666" />
+              <Text style={styles.locationText} numberOfLines={1}>
+                {item.location || 'Location not specified'}
+              </Text>
             </View>
-            <View style={styles.detail}>
-              <Text style={styles.detailText}>{item.area}m²</Text>
-            </View>
-          </View>
 
-          <View style={styles.priceRow}>
-            <Text style={styles.price}>€{item.price}</Text>
-            <Text style={styles.priceUnit}>/month</Text>
+            {/* Owner info row */}
+            <View style={styles.ownerRow}>
+              {ownerAvatar ? (
+                <Image source={{ uri: ownerAvatar }} style={styles.ownerAvatar} />
+              ) : (
+                <View style={styles.ownerAvatarFallback}>
+                  <User size={14} color="#666" />
+                </View>
+              )}
+              <Text style={styles.ownerName} numberOfLines={1}>
+                {ownerName}
+              </Text>
+            </View>
+
+            <View style={styles.detailsRow}>
+              <View style={styles.detail}>
+                <Bed size={16} color="#666" />
+                <Text style={styles.detailText}>{item.bedrooms || '?'} bed</Text>
+              </View>
+              <View style={styles.detail}>
+                <Bath size={16} color="#666" />
+                <Text style={styles.detailText}>{item.bathrooms || '?'} bath</Text>
+              </View>
+              <View style={styles.detail}>
+                <Text style={styles.detailText}>{item.area || '?'}m²</Text>
+              </View>
+            </View>
+
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>€{item.price || 0}</Text>
+              <Text style={styles.priceUnit}>/month</Text>
+            </View>
           </View>
-        </View>
-      </TouchableOpacity>
-    </Link>
-  );
+        </TouchableOpacity>
+      </Link>
+    );
+  };
 
   // Loading state
   if (isLoading) {
@@ -165,7 +226,7 @@ export default function ExploreScreen() {
       <FlatList
         data={filteredHousing}
         renderItem={renderHousingCard}
-        keyExtractor={item => item.$id || item.id}
+        keyExtractor={item => item.$id || item.id || Math.random().toString()}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -285,10 +346,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#eee',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   cardImage: {
     width: '100%',
     height: 200,
+    backgroundColor: '#f0f0f0',
   },
   cardContent: {
     padding: 16,
@@ -315,12 +382,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   locationText: {
     fontSize: 14,
     fontFamily: 'Inter_400Regular',
     color: '#666',
+    flex: 1,
+  },
+  ownerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  ownerAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+  },
+  ownerAvatarFallback: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ownerName: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#666',
+    flex: 1,
   },
   detailsRow: {
     flexDirection: 'row',

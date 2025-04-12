@@ -1,6 +1,6 @@
 import React from 'react';
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, School, Mail, Phone, CreditCard as Edit, LogOut } from 'lucide-react-native';
 import { router } from 'expo-router';
@@ -44,78 +44,72 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 function ProfileScreenContent() {
-  const { signOut, user, profile } = useAuth();
+  const { signOut, user, profile, refreshUserProfile } = useAuth();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const isMounted = useRef(true);
+  
+  // Format profile data helper
+  const formatProfileData = (profileData: any): UserProfile => {
+    return {
+      id: profileData.userId || profileData.$id,
+      email: profileData.email || '',
+      fullname: profileData.fullname || '',
+      phone: profileData.phone || '',
+      university: profileData.university || '',
+      course: profileData.course || '',
+      nationality: profileData.nationality || '',
+      interests: profileData.interests || [],
+      avatar: profileData.avatar || 'https://via.placeholder.com/80',
+      bio: profileData.bio || ''
+    };
+  };
 
   const fetchProfileData = useCallback(async () => {
     try {
       if (profile) {
-        const formattedProfile = {
-          id: profile.userId || profile.$id,
-          email: profile.email || '',
-          fullname: profile.fullname || '',
-          phone: profile.phone || '',
-          university: profile.university || '',
-          course: profile.course || '',
-          nationality: profile.nationality || '',
-          interests: profile.interests || [],
-          avatar: profile.avatar || 'https://via.placeholder.com/80',
-          bio: profile.bio || ''
-        };
-        
-        setUserProfile(formattedProfile);
+        setUserProfile(formatProfileData(profile));
         setError('');
+        return true;
       } else if (user) {
         console.log('Fetching profile from service...');
         const fetchedProfile = await authService.getUserProfile();
         
         if (fetchedProfile) {
-          const formattedProfile = {
-            id: fetchedProfile.userId || fetchedProfile.$id,
-            email: fetchedProfile.email || '',
-            fullname: fetchedProfile.fullname || '',
-            phone: fetchedProfile.phone || '',
-            university: fetchedProfile.university || '',
-            course: fetchedProfile.course || '',
-            nationality: fetchedProfile.nationality || '',
-            interests: fetchedProfile.interests || [],
-            avatar: fetchedProfile.avatar || 'https://via.placeholder.com/80',
-            bio: fetchedProfile.bio || ''
-          };
-          
-          setUserProfile(formattedProfile);
+          setUserProfile(formatProfileData(fetchedProfile));
           setError('');
+          return true;
         } else {
           setError('Profile not found');
+          return false;
         }
       } else {
         router.replace('/(auth)/sign-in');
+        return false;
       }
     } catch (err) {
       console.error('Profile load error:', err);
       setError('Failed to load profile');
+      return false;
     }
   }, [user, profile]);
 
+  // Simple refresh function similar to the events page
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    console.log('Refreshing profile data...');
-    
     try {
+      if (refreshUserProfile) {
+        await refreshUserProfile();
+      }
       await fetchProfileData();
-      // Add a small delay for UX purposes
-      setTimeout(() => {
-        setRefreshing(false);
-        console.log('Refresh complete');
-      }, 1000);
     } catch (error) {
       console.error('Refresh error:', error);
+    } finally {
       setRefreshing(false);
     }
-  }, [fetchProfileData]);
+  }, [fetchProfileData, refreshUserProfile]);
 
   const logout = () => {
     Alert.alert(
@@ -134,7 +128,7 @@ function ProfileScreenContent() {
               console.error('Logout error:', err);
               Alert.alert('Logout Failed', 'Could not log out. Please try again.');
             } finally {
-              setLoading(false);
+              if (isMounted.current) setLoading(false);
             }
           }
         }
@@ -146,11 +140,22 @@ function ProfileScreenContent() {
     const loadInitialData = async () => {
       setLoading(true);
       await fetchProfileData();
-      setLoading(false);
+      if (isMounted.current) setLoading(false);
     };
     
     loadInitialData();
-  }, [fetchProfileData]);
+    
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchProfileData]); 
+
+  // Update when profile changes
+  useEffect(() => {
+    if (profile && isMounted.current) {
+      setUserProfile(formatProfileData(profile));
+    }
+  }, [profile]);
 
   if (loading) {
     return (
@@ -222,27 +227,22 @@ function ProfileScreenContent() {
             onRefresh={onRefresh}
             colors={['#0000ff']}
             tintColor="#0000ff"
-            progressViewOffset={10} // Adjust this value if using Android and scrollview is under a header
-            title="Refreshing..." // Text that appears while refreshing (iOS only)
-            titleColor="#666" // Color of the refresh text (iOS only)
-            progressBackgroundColor="#fff" // Background color of the refresh indicator
           />
         }
         showsVerticalScrollIndicator={true}
-        scrollEventThrottle={16}
         testID="profile-scroll-view"
-        overScrollMode="always" // For Android
-        alwaysBounceVertical={true} // For iOS
       >
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.title}>Profile</Text>
-            <TouchableOpacity 
-              onPress={() => router.push('/profile/settings')}
-              testID="settings-button"
-            >
-              <Settings size={24} color="#000" />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                onPress={() => router.push('/profile/settings')}
+                testID="settings-button"
+              >
+                <Settings size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -356,7 +356,6 @@ function ProfileScreenContent() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
         
-        {/* Extra space at bottom to ensure everything is scrollable */}
         <View style={styles.bottomPadding} />
       </ScrollView>
     </SafeAreaView>
@@ -371,14 +370,21 @@ export default function ProfileScreen() {
   );
 }
 
+// styles remain the same...
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    justifyContent: 'center',
   },
   content: {
     padding: 24,
+    minHeight: Platform.OS === 'ios' ? '100%' : undefined, // Ensure iOS has enough to scroll
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     marginBottom: 24,
@@ -387,6 +393,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  refreshButtonText: {
+    fontSize: 18,
   },
   title: {
     fontSize: 32,
@@ -506,4 +529,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
   },
-});
+  bottomPadding: {
+    height: 60, // Extra space at bottom to ensure content is scrollable
+  }
+}); 
