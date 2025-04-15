@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft, X } from 'lucide-react-native';
-import { useAuth } from '@/context/authContext'; 
+import { useAuth } from '@/context/authContext';
 
 type Step = {
   id: number;
@@ -45,7 +45,7 @@ const steps: Step[] = [
 
 // Predefined interest options for the tag buttons
 const interestOptions = [
-  'Sports', 'Music', 'Art', 'Reading', 'Travel', 
+  'Sports', 'Music', 'Art', 'Reading', 'Travel',
   'Technology', 'Food', 'Photography', 'Fashion', 'Gaming',
   'Fitness', 'Movies', 'Dance', 'Languages', 'Writing'
 ];
@@ -55,24 +55,24 @@ export default function UserInfoScreen() {
   const [formData, setFormData] = useState({ interests: [] });
   const [loading, setLoading] = useState(false);
   const [newInterest, setNewInterest] = useState('');
-  
+
   // Use the auth context
   const { user, profile, updateProfile, isAuthenticated } = useAuth();
-  
+
   // Get current user profile when component mounts
   useEffect(() => {
     if (!user) {
       console.warn("UserInfoScreen: No authenticated user found!");
       return;
     }
-    
+
     console.log("UserInfoScreen: User authenticated:", user.$id);
-    
+
     if (profile) {
       console.log("UserInfoScreen: Profile found:", profile.$id);
       // Pre-fill form data with existing profile data
-      const processedProfile = {...profile};
-      
+      const processedProfile = { ...profile };
+
       // Ensure interests is an array
       if (profile.interests && !Array.isArray(profile.interests)) {
         // If somehow the interest is not an array (e.g. string from older version),
@@ -87,12 +87,12 @@ export default function UserInfoScreen() {
       } else if (!profile.interests) {
         processedProfile.interests = [];
       }
-      
+
       setFormData(processedProfile);
     } else {
       console.log("UserInfoScreen: No profile found for user:", user?.$id);
       // Initialize interests as empty array
-      setFormData(prev => ({...prev, interests: []}));
+      setFormData(prev => ({ ...prev, interests: [] }));
     }
   }, [user, profile]);
 
@@ -107,7 +107,7 @@ export default function UserInfoScreen() {
         return !formData[field.key];
       })
       .map(field => field.label);
-    
+
     if (missingFields.length > 0) {
       Alert.alert('Missing Information', `Please fill in: ${missingFields.join(', ')}`);
       return;
@@ -119,30 +119,37 @@ export default function UserInfoScreen() {
     } else {
       // This is the final step - save profile data to Appwrite
       setLoading(true);
-      
+
       try {
         if (!user) {
           console.error("UserInfoScreen: No authenticated user found!");
           throw new Error('User not authenticated');
         }
-        
+
         console.log("UserInfoScreen: Attempting to update profile for user:", user.$id);
-        
+
         // Make a copy of form data
-        const dataToSave = {...formData};
-        
+        const dataToSave = { ...formData };
+
+        // Remove Appwrite metadata fields that start with $
+        Object.keys(dataToSave).forEach(key => {
+          if (key.startsWith('$')) {
+            delete dataToSave[key];
+          }
+        });
+
         // Ensure interests is an array
         if (!Array.isArray(dataToSave.interests)) {
           dataToSave.interests = [];
         }
-        
-        // Save the complete profile data
+
+        // Save the clean profile data
         const result = await updateProfile(dataToSave);
         console.log("UserInfoScreen: Profile update result:", result?.$id);
-        
+
         // Show success message
         Alert.alert(
-          'Profile Completed', 
+          'Profile Completed',
           'Your profile has been saved successfully!',
           [{ text: 'OK', onPress: () => router.replace('/(app)') }]
         );
@@ -165,7 +172,7 @@ export default function UserInfoScreen() {
 
   const addInterest = (interest) => {
     if (!interest.trim()) return;
-    
+
     // Check if the interest already exists
     if (!formData.interests || !formData.interests.includes(interest)) {
       setFormData(prev => ({
@@ -228,7 +235,7 @@ export default function UserInfoScreen() {
           {step.fields.map((field) => (
             <View key={field.key} style={styles.inputContainer}>
               <Text style={styles.label}>{field.label}</Text>
-              
+
               {field.type === 'tags' ? (
                 <View>
                   {/* Selected interests tags */}
@@ -242,7 +249,7 @@ export default function UserInfoScreen() {
                       </View>
                     ))}
                   </View>
-                  
+
                   {/* Add custom interest input */}
                   <View style={styles.customTagInput}>
                     <TextInput
@@ -259,7 +266,7 @@ export default function UserInfoScreen() {
                       <Text style={styles.addTagButtonText}>Add</Text>
                     </TouchableOpacity>
                   </View>
-                  
+
                   {/* Interest options */}
                   <Text style={styles.suggestedLabel}>Suggested interests:</Text>
                   <View style={styles.interestOptions}>
@@ -296,14 +303,14 @@ export default function UserInfoScreen() {
             </View>
           ))}
 
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]} 
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleNext}
             disabled={loading}
           >
             <Text style={styles.buttonText}>
-              {loading 
-                ? 'Saving...' 
+              {loading
+                ? 'Saving...'
                 : (isLastStep ? 'Complete Registration' : 'Continue')}
             </Text>
           </TouchableOpacity>

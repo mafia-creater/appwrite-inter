@@ -12,9 +12,11 @@ client.setProject('67e04a47000d2aa438b3');
 
 // Set platform identifier based on your app
 if(Platform.OS === "ios"){
-  client.setPlatform("com.intermover.ios");
+  client.setPlatform('com.intermover.ios');
 }else if(Platform.OS === "android"){
-  client.setPlatform("com.intermover.app");
+  client.setPlatform('com.intermover.app');
+}else{
+  client.setPlatform("67e04a47000d2aa438b3");
 }
 
 // Initialize services directly
@@ -42,6 +44,9 @@ export class AuthService {
     }
     
     this.storageId = storageId;
+    this.account = account;
+    this.databases = databases;
+    this.storage = storage;
   }
 
   // Simplified method to update user profile with optional image
@@ -54,7 +59,7 @@ export class AuthService {
       }
   
       // Find user profile by userId
-      const profiles = await databases.listDocuments(
+      const profiles = await this.databases.listDocuments(
         DATABASE_ID,
         PROFILES_COLLECTION_ID,
         [Query.equal('userId', currentUser.$id)]
@@ -66,15 +71,23 @@ export class AuthService {
   
       const profileId = profiles.documents[0].$id;
   
-      // Prepare profile data with avatar URL if provided
+      // Clean the profile data by removing any $ fields
+      const cleanData = {...profileData};
+      Object.keys(cleanData).forEach(key => {
+        if (key.startsWith('$')) {
+          delete cleanData[key];
+        }
+      });
+  
+      // Prepare profile data with additional fields
       const updatedData = {
-        ...profileData,
+        ...cleanData,
         profileComplete: true,
         updatedAt: new Date().toISOString()
       };
   
       // Update the profile document
-      const updatedProfile = await databases.updateDocument(
+      const updatedProfile = await this.databases.updateDocument(
         DATABASE_ID,
         PROFILES_COLLECTION_ID,
         profileId,
@@ -91,15 +104,30 @@ export class AuthService {
   // Register a new user
   async createAccount(email, password, fullname) {
     try {
+      // Check for and delete any existing session first
+      try {
+        const currentSession = await this.account.getSession('current');
+        if (currentSession) {
+          await this.account.deleteSession('current');
+          console.log('Deleted existing session before account creation');
+        }
+      } catch (error) {
+        // No active session or other error - proceed with account creation
+        console.log('No active session found or error checking:', error.message);
+      }
+      
       // Create the account in Appwrite
-      const newAccount = await account.create(
+      const newAccount = await this.account.create(
         ID.unique(),
         email,
         password,
         fullname
       );
       
-      // Create a basic user profile
+      // Log in the user first to get proper authorization
+      await this.login(email, password);
+      
+      // Create a basic user profile after login
       if (newAccount) {
         await this.createUserProfile({
           userId: newAccount.$id,
@@ -110,15 +138,15 @@ export class AuthService {
       
       return newAccount;
     } catch (error) {
+      // Error handling unchanged
       console.error('Error creating account:', error);
-  
-      // Provide more user-friendly error messages
+      
       if (error.code === 401) {
         throw new Error('Permission denied. Please contact support.');
-      } else if (error.message.includes('unique')) {
+      } else if (error.code === 409 || error.message.includes('unique')) {
         throw new Error('This email is already registered.');
       } else {
-        throw new Error('Could not create account. Please try again.');
+        throw new Error(`Registration failed: ${error.message}`);
       }
     }
   }
@@ -156,7 +184,22 @@ export class AuthService {
   async login(email, password) {
     try {
       console.log('Login attempt with:', email);
-      const session = await account.createEmailPasswordSession(email, password);
+      
+      // First, check if there's an active session
+      try {
+        const currentSession = await this.account.getSession('current');
+        if (currentSession) {
+          // If a session exists, delete it first
+          await this.account.deleteSession('current');
+          console.log('Deleted existing session');
+        }
+      } catch (error) {
+        // No active session or other error - proceed with login
+        console.log('No active session found or error checking:', error.message);
+      }
+      
+      // Now create the new session
+      const session = await this.account.createEmailPasswordSession(email, password);
       console.log('Login successful');
       return session;
     } catch (error) {
